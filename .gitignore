@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.pyc
+led/venv/
+
+# REAPER project backups/peaks
+*.RPP-bak
+*.reapeaks/
+
+# OS cruft
+.DS_Store
+Thumbs.db

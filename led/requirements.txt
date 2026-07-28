@@ -1,0 +1,4 @@
+python-osc>=1.9
+# gpiozero + lgpio are installed system-wide via apt (setup/01_system_base.sh)
+# and inherited into the venv via --system-site-packages (setup/03_led_service.sh)
+# rather than pip-installed, to avoid compiling lgpio's C extension on-device.
