@@ -80,6 +80,55 @@ create `reaper.ini`, then the audio device and OSC control surface are
 configured manually (see [reaper/OSC_SETUP.md](reaper/OSC_SETUP.md)) — this
 only needs doing once, then `reaper.ini` is copied verbatim to the other Pis.
 
+## REAPER extensions (SWS/S&M + ReaPack)
+
+`setup/05_install_reaper_extensions.sh` installs two community-standard REAPER
+extensions straight into `~/.config/REAPER/UserPlugins/`:
+
+- **[SWS/S&M](https://www.sws-extension.org/)** (`reaper_sws-aarch64.so`) — a large
+  bundle of extra actions, tools and utilities (batch processing, extra track/item
+  management, grooves, notes, etc.) that most non-trivial REAPER setups rely on.
+- **[ReaPack](https://reapack.com/)** (`reaper_reapack-aarch64.so`) — REAPER's
+  package manager. It lets REAPER pull in and auto-update community scripts,
+  JSFX effects, and themes from public repositories, instead of copying files by
+  hand.
+
+Both are official aarch64 Linux builds (SWS's bleeding-edge build page publishes
+the only aarch64 binary available; ReaPack's GitHub release provides one
+directly). ⚠️ The ReaPack `.so` **must** keep its `-aarch64` filename suffix —
+renaming it triggers a "not loaded from the standard extension path" warning,
+since ReaPack uses that suffix to find the right asset for its own self-updates.
+
+Once installed (REAPER needs a restart to load new extensions), use
+**Extensions > ReaPack > Synchronize packages** to pull in the package
+index, then **Extensions > ReaPack > Browse packages** to search and install
+any additional scripts/JSFX from the community repositories — this is how
+REAPER's functionality gets extended going forward without editing this repo.
+
+## Tremor sound source (real seismic sonification)
+
+`reaper/tremor_samples/` contains real ground-motion audio generated with
+[DZA01](https://github.com/RVX/DZA_Borehole_Sonification), a GPL-3.0 sonification
+toolkit that pulls live seismic data from the DZA borehole network (KIT/GPI,
+Germany) and speeds it up into the audible range (a straight frequency shift,
+no synthesis). One clip per site/depth combination, 3 minutes each, 0.5–10 Hz
+bandpass, 100x speed-up, vertical channel:
+
+| File | Site | Sensor |
+|---|---|---|
+| `tremor_DZA11_surface_vertical.wav` | Site 1 | surface (Trillium Compact 20s) |
+| `tremor_DZA13_borehole_vertical.wav` | Site 1 | borehole, ~240 m depth |
+| `tremor_DZA31_surface_vertical.wav` | Site 3 | surface (Trillium Horizon 120s) |
+| `tremor_DZA33_borehole_vertical.wav` | Site 3 | borehole, ~240 m depth |
+
+Import these into the REAPER project as audio items to use as ambient/tremor
+material (the borehole clips are quieter/deeper-feeling; the surface clips
+carry more transient detail). Regenerate or fetch a fresh/longer window any
+time with the toolkit itself, e.g.:
+```bash
+python DZA01.py --sites 1,3 --listen-minutes 3 --channel all fetch plot sonify
+```
+
 ## Troubleshooting
 
 **"Error opening devices... JACK error creating client"** on first boot: REAPER
