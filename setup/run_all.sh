@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-for step in 01_system_base.sh 02_install_reaper.sh 03_led_service.sh 04_vnc_and_autostart.sh; do
+for step in 01_system_base.sh 02_install_reaper.sh 03_led_service.sh 04_vnc_and_autostart.sh 05_install_reaper_extensions.sh; do
     echo ""
     echo "########## ${step} ##########"
     bash "${step}"

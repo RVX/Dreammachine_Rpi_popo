@@ -1,7 +1,6 @@
 # Dreammachine_Rpi_popo
 
-Raspberry Pi control system for **DREAMMACHINE**, an art installation by
-Julian Charrière. Each Pi runs a REAPER session through a RaspiAudio Audio+ V3
+Raspberry Pi control system for **DREAMMACHINE**, for an art installation. Each Pi runs a REAPER session through a RaspiAudio Audio+ V3
 sound shield, while a Python service drives a synchronized LED strip, reacting
 live to REAPER's transport/playback state over OSC (ReaOSC). The whole thing
 boots unattended, kiosk-style — no keyboard, mouse, or monitor required on site.
@@ -72,6 +71,7 @@ bash setup/01_system_base.sh      # apt update/upgrade, gpiozero/lgpio, python v
 bash setup/02_install_reaper.sh   # download + install REAPER (aarch64 eval)
 bash setup/03_led_service.sh      # venv + python-osc + systemd LED service
 bash setup/04_vnc_and_autostart.sh  # enable VNC, kiosk autologin, REAPER autostart
+bash setup/05_install_reaper_extensions.sh  # SWS/S&M + ReaPack (restart REAPER after)
 ```
 Or run all at once: `bash setup/run_all.sh`
 
@@ -110,4 +110,4 @@ granted for reuse outside the project unless stated otherwise by the author.
 
 ## Credits
 
-Built for **DREAMMACHINE** by Julian Charrière.
+Built for **DREAMMACHINE** by Víctor Mazón Gardoqui. 2026.
