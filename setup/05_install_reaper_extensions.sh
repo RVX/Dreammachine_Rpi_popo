@@ -11,10 +11,16 @@ trap 'rm -rf "${TMP_DIR}"' EXIT
 
 # --- ReaPack (package manager) ---
 # Official build from cfillion/reapack releases (v1.2.6, linux-aarch64).
+# NOTE: keep the "-aarch64" suffix in the installed filename. ReaPack checks
+# it was loaded from the standard arch-suffixed path (needed for its own
+# self-update mechanism to find the right asset); renaming it to a generic
+# reaper_reapack.so triggers a "not loaded from the standard extension path"
+# warning on startup.
 REAPACK_URL="https://github.com/cfillion/reapack/releases/download/v1.2.6/reaper_reapack-aarch64.so"
 echo "==> downloading ReaPack (aarch64)"
-curl -fL "${REAPACK_URL}" -o "${USERPLUGINS}/reaper_reapack.so"
-echo "ReaPack installed: ${USERPLUGINS}/reaper_reapack.so"
+rm -f "${USERPLUGINS}/reaper_reapack.so"
+curl -fL "${REAPACK_URL}" -o "${USERPLUGINS}/reaper_reapack-aarch64.so"
+echo "ReaPack installed: ${USERPLUGINS}/reaper_reapack-aarch64.so"
 
 # --- SWS/S&M extension ---
 # Official bleeding-edge build from sws-extension.org (no separate stable
