@@ -104,11 +104,13 @@ def shutdown(signum=None, frame=None):
 
 
 def ambient_loop() -> None:
-    """Continuous breathing pattern; brighter/faster while REAPER is playing."""
+    """Continuous breathing pattern; brighter/faster while REAPER is playing,
+    with brightness additionally nudged by the live VU average while playing."""
     phase = 0.0
     while running:
         with state_lock:
             playing = transport["playing"]
+            vu_avg = sum(transport["vu"]) / len(transport["vu"]) if playing else 0.0
 
         if playing:
             speed = 0.06
@@ -117,9 +119,12 @@ def ambient_loop() -> None:
             speed = 0.02
             low, high = MIN_BRIGHTNESS, MIN_BRIGHTNESS + 30
 
-        # Simple sine breathing between low and high.
+        # Simple sine breathing between low and high, nudged upward by the
+        # live VU average (0..1) so the strip visibly reacts to playback level.
         phase += speed
         brightness = low + (high - low) * (0.5 + 0.5 * math.sin(phase))
+        if playing:
+            brightness = min(MAX_BRIGHTNESS, brightness + vu_avg * 20)
         set_all(brightness)
         time.sleep(0.03)
 
@@ -159,8 +164,6 @@ def build_osc_server() -> ThreadingOSCUDPServer:
     dispatcher.map("/pause", handle_pause)
     dispatcher.map("/track/*/vu", handle_vu)
     return ThreadingOSCUDPServer((OSC_LISTEN_HOST, OSC_LISTEN_PORT), dispatcher)
-
-
 
 
 def main() -> int:

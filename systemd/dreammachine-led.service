@@ -6,11 +6,12 @@ After=network.target
 Type=simple
 User=sjc
 WorkingDirectory=/home/sjc/dreammachine
+Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=/home/sjc/dreammachine/config/dreammachine.env
 ExecStart=/home/sjc/dreammachine/led/venv/bin/python3 /home/sjc/dreammachine/led/led_controller.py
 Restart=always
 RestartSec=2
-# SIGTERM is handled by the script itself (raises KeyboardInterrupt -> all_off + pi.stop()).
+# SIGTERM is handled by the script itself (raises KeyboardInterrupt -> all_off + led.close()).
 KillSignal=SIGTERM
 TimeoutStopSec=10
 

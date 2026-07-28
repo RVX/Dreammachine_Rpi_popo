@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 01_system_base.sh — base OS packages + pigpio + ALSA default device.
+# 01_system_base.sh — base OS packages + gpiozero/lgpio + ALSA default device.
 # Run on the Pi as the sjc user: bash setup/01_system_base.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."

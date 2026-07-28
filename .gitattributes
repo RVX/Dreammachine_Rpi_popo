@@ -1,0 +1,7 @@
+# Force LF line endings for files deployed to/executed on the Raspberry Pi.
+# Windows-authored CRLF endings break bash on Linux (e.g. `$'\r': command not found`
+# when sourcing config/dreammachine.env) — see MIGRATION.md / repo history.
+*.sh    text eol=lf
+*.env   text eol=lf
+*.service text eol=lf
+*.py    text eol=lf

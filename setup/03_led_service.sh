@@ -17,7 +17,8 @@ sed "s#/home/sjc/dreammachine#${REPO_DIR}#g" systemd/dreammachine-led.service \
     | sudo tee /etc/systemd/system/dreammachine-led.service >/dev/null
 
 sudo systemctl daemon-reload
-sudo systemctl enable --now dreammachine-led.service
+sudo systemctl enable dreammachine-led.service
+sudo systemctl restart dreammachine-led.service
 
 echo "==> status:"
 sudo systemctl status dreammachine-led.service --no-pager || true
