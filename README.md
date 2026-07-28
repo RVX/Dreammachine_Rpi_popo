@@ -30,7 +30,7 @@ See [MIGRATION.md](MIGRATION.md) for the full fleet tracking table.
 | Item | Value |
 |---|---|
 | Board | Raspberry Pi 4 Model B Rev 1.5 |
-| OS | Raspberry Pi OS (Debian 13 "trixie"), 64-bit, desktop (labwc/Wayland) |
+| OS | Raspberry Pi OS (Debian 13 "trixie"), 64-bit, desktop (X11/Openbox — see Troubleshooting) |
 | Sound shield | RaspiAudio Audio+ V3 (`snd_rpi_hifiberry_dac`, auto-detected via EEPROM, **no config.txt edit needed**) |
 | LED strip | PWM MOSFET strip via `gpiozero`/`lgpio`, GPIO 12,13,16,17,22,27 (configurable) |
 
@@ -141,6 +141,17 @@ once via Preferences > Audio > Device > Audio System: `ALSA`, Device:
 first boot: expected until the project is saved for the first time via
 **File > Save As** (see [reaper/OSC_SETUP.md](reaper/OSC_SETUP.md)) — the
 autostart script always points at this path.
+
+**Drag-and-drop into REAPER doesn't work (Insert > Media File does)**: the
+default Raspberry Pi OS desktop session is `labwc` (Wayland); REAPER is an
+X11-only app and runs under it via XWayland. Drag-and-drop across the
+XWayland↔native-Wayland boundary (e.g. from the file manager) is unreliable on
+wlroots-based compositors like labwc — this happens with a directly-connected
+mouse/keyboard too, it isn't VNC-specific. `setup/04_vnc_and_autostart.sh`
+switches the session to plain X11 (`raspi-config nonint do_wayland W1`,
+Openbox) instead, which avoids the problem entirely; REAPER's autostart is
+then configured via `~/.config/lxsession/rpd-x/autostart` +
+`systemd/start_reaper.sh` rather than a labwc autostart file.
 
 ## Robustness measures
 

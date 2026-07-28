@@ -5,3 +5,5 @@
 *.env   text eol=lf
 *.service text eol=lf
 *.py    text eol=lf
+systemd/rpd-x-autostart text eol=lf
+systemd/start_reaper.sh text eol=lf
