@@ -188,6 +188,82 @@ time with the toolkit itself, e.g.:
 python DZA01.py --sites 1,3 --listen-minutes 3 --channel all fetch plot sonify
 ```
 
+## Speaker test/calibration signals
+
+`tools/speaker_test/generate_speaker_test_signals.py` synthesizes a full set
+of 24-bit/48kHz WAV test signals (reference tone, pink/white noise, log
+sweeps, ISO 1/3-octave band scan, impulse/square wave, polarity pulse, stereo
+L/R identification, a synthesized kick transient, and multi-level THD probe
+tones) for comparing candidate speakers and picking one for the installation.
+See [tools/speaker_test/README.md](tools/speaker_test/README.md) for the full
+test protocol and `tools/speaker_test/scorecard_template.csv` to log results.
+Generate with:
+```bash
+cd tools/speaker_test
+python -m venv venv && venv/Scripts/activate  # or source venv/bin/activate
+pip install -r requirements.txt
+python generate_speaker_test_signals.py
+```
+
+## Sound shield HAT ID EEPROM
+
+The RaspiAudio Audio+ V3 shield carries a small I2C ID EEPROM (address `0x50`)
+that tells the Pi which device-tree overlay to load — this is what lets the
+board auto-detect as `snd_rpi_hifiberry_dac` with no `config.txt` edits.
+Decoded contents (read on sjcdm1, `raspi-utils-eeprom` package):
+
+```
+# Start of atom #0 of type 0x0001 and length 49
+# Vendor info
+product_uuid 23d8a259-e02b-40b6-97d1-052bd892f32f
+product_id 0x2424
+product_ver 0x0001
+vendor "Raspiaudio.com"   # length=14
+product "Pi Audio V3"   # length=11
+# End of atom. CRC16=0xc525
+
+# Start of atom #1 of type 0x0002 and length 32
+# GPIO map info
+gpio_drive 0
+gpio_slew 0
+gpio_hysteresis 0
+back_power 0
+#        GPIO  FUNCTION  PULL
+#        ----  --------  ----
+setgpio  2      ALT0     DEFAULT
+setgpio  3      ALT0     DEFAULT
+setgpio  18      ALT0     DEFAULT
+setgpio  19      ALT0     DEFAULT
+setgpio  20      ALT0     DEFAULT
+setgpio  21      ALT0     DEFAULT
+# End of atom. CRC16=0x4280
+
+# Start of atom #2 of type 0x0003 and length 16
+dt_blob "
+hifiberry-dac
+\"
+# End of atom. CRC16=0x8c03
+```
+
+Confirms the shield is a RaspiAudio "Pi Audio V3" board identifying itself via
+the `hifiberry-dac` overlay.
+
+**How this was produced** (note: `rpi-eeprom-config`/`rpi-eeprom-update` are a
+different tool for the Pi's own bootloader SPI EEPROM — not this):
+
+1. The dedicated ID EEPROM I2C bus is off by default; enable it with
+   `dtparam=i2c_vc=on` appended to `/boot/firmware/config.txt`, then reboot.
+   A new bus appears (`i2c-0` here); confirm the EEPROM address with
+   `sudo i2cdetect -y 0` (`0x50` = standard HAT/HAT+).
+2. Dump the raw binary with `eepflash.sh` (from `raspi-utils-eeprom`):
+   ```bash
+   sudo eepflash.sh -r -y -f=hifiberry_eeprom_dump.eep -t=24c32 -d=0 -a=50
+   ```
+3. Decode the binary into the human-readable atoms shown above:
+   ```bash
+   eepdump hifiberry_eeprom_dump.eep hifiberry_eeprom_dump.txt
+   ```
+
 ## Troubleshooting
 
 **"Error opening devices... JACK error creating client"** on first boot: REAPER

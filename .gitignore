@@ -4,6 +4,9 @@ __pycache__/
 led/venv/
 rp2350/build/
 rp2350/build-provision/
+tools/speaker_test/venv/
+tools/speaker_test/output/
+tools/speaker_test/reference_sounds/*.mp3
 
 # REAPER project backups/peaks
 *.RPP-bak
