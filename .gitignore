@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 led/venv/
+rp2350/build/
 
 # REAPER project backups/peaks
 *.RPP-bak

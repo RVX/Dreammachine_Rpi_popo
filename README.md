@@ -1,6 +1,12 @@
 # Dreammachine_Rpi_popo
 
-Raspberry Pi control system for **DREAMMACHINE**, for an art installation. Each Pi runs a REAPER session through a RaspiAudio Audio+ V3
+> **HARDWARE HOLD:** Do not apply external 12 V to any custom shield until
+> R78/R79/R81 control nets and C65/C67 single-ended inputs have been reworked
+> and signed off using [AMP_TEST.md](AMP_TEST.md). PCM5102A pin 17 `XSMT` must
+> also be tied to `+3.3VDAC` per [DAC_TEST.md](DAC_TEST.md). USB-C logic-only
+> operation is allowed.
+
+Raspberry Pi control system for **DREAMMACHINE**, for an art installation. Each Pi runs a REAPER session through the custom PCM5102A
 sound shield, while a Python service drives a synchronized LED strip, reacting
 live to REAPER's transport/playback state over OSC (ReaOSC). The whole thing
 boots unattended, kiosk-style — no keyboard, mouse, or monitor required on site.
@@ -10,10 +16,50 @@ setup is cloned to 4 more identical Pis — see [MIGRATION.md](MIGRATION.md).
 
 ```mermaid
 flowchart LR
-    A["REAPER\n(Dreammachine_popo_01.RPP)"] -- "OSC :9000\n/play /stop /track/*/vu" --> B["led_controller.py\n(systemd service)"]
-    A -- "ALSA" --> C["RaspiAudio Audio+ V3\n(I2S DAC)"]
-    B -- "PWM (gpiozero/lgpio)" --> D["LED strip\nGPIO 12/13/16/17/22/27"]
-    E["Boot"] -- "autologin + autostart" --> A
+  A["REAPER project"] --> B["Master mono sum"]
+  B -->|"ALSA / I2S"| C["PCM5102A DAC"]
+  C -->|"OUTL"| D["TPA3118 left channel"]
+  D --> E["AUDIOOUT1 pins 1-2\n8 ohm speaker"]
+  C -.->|"OUTR unused"| F["TPA3118 right channel\nno load"]
+  G["Raspberry Pi"] -->|"SPI0"| H["RP2350B controller"]
+  H -->|"SDZ / MUTE"| D
+  H -->|"GPIO33-38"| I["MOSFET outputs"]
+```
+
+The installation is **mono, left output only**. REAPER sums its master to
+centered mono at runtime. Never parallel or bridge the TPA3118 left and right
+outputs; leave AUDIOOUT1 pins 3-4 disconnected.
+
+```mermaid
+sequenceDiagram
+  participant Boot as Pi boot
+  participant RP as RP2350B
+  participant R as REAPER wrapper
+  participant DAC as PCM5102A / ALSA
+  participant AMP as TPA3118
+
+  Boot->>RP: Power/reset
+  RP->>AMP: MUTE high, SDZ low
+  Boot->>R: X11 autostart
+  R->>RP: amp-mute + amp-shutdown
+  R->>RP: amp-start-muted
+  R->>DAC: Launch REAPER
+  DAC-->>R: PCM device owned
+  R->>R: Force master to centered mono
+  R->>RP: amp-unmute
+  RP->>AMP: Unmute only if FAULTZ high
+```
+
+```mermaid
+flowchart TD
+  A["REAPER running"] --> B{"FAULTZ high?"}
+  B -->|"Yes"| C["Left mono audio enabled"]
+  B -->|"No"| D["Remain muted"]
+  C --> E{"REAPER exits or wrapper stops?"}
+  E -->|"No"| A
+  E -->|"Yes"| F["MUTE high"]
+  D --> F
+  F --> G["SDZ low / amplifier shutdown"]
 ```
 
 ## Status
@@ -31,12 +77,13 @@ See [MIGRATION.md](MIGRATION.md) for the full fleet tracking table.
 |---|---|
 | Board | Raspberry Pi 4 Model B Rev 1.5 |
 | OS | Raspberry Pi OS (Debian 13 "trixie"), 64-bit, desktop (X11/Openbox — see Troubleshooting) |
-| Sound shield | RaspiAudio Audio+ V3 (`snd_rpi_hifiberry_dac`, auto-detected via EEPROM, **no config.txt edit needed**) |
-| LED strip | PWM MOSFET strip via `gpiozero`/`lgpio`, GPIO 12,13,16,17,22,27 (configurable) |
+| Sound shield | Custom PCM5102A (`hifiberry-dac` overlay, ALSA `snd_rpi_hifiberry_dac`) |
+| LED control | RP2350B GPIO33-38; Raspberry Pi control over SPI is the next integration step |
 
-⚠️ **GPIO 18, 19, 20, 21 are reserved by the Audio+ shield's I2S bus** — never reuse
-them for the LED strip or anything else. GPIO 0/1 are used by the shield's ID
-EEPROM. Confirmed free/default LED pins: **12, 13, 16, 17, 22, 27**.
+**GPIO 18, 19, and 21 are reserved for PCM5102A I2S. GPIO16-20 are reserved
+for RP2350B SPI/IRQ, and GPIO0/1 are reserved for serial communication.** The
+existing `dreammachine-led.service` is legacy direct-GPIO code and must remain
+stopped with the custom shield until it is replaced by the RP2350 SPI client.
 
 ## Network
 
@@ -68,17 +115,29 @@ MIGRATION.md      steps to clone the working setup to Pi 2-5
 
 ```bash
 bash setup/01_system_base.sh      # apt update/upgrade, gpiozero/lgpio, python venv, alsa
+bash setup/01_audio_dac.sh        # enable PCM5102A overlay; reboot and run again to test
 bash setup/02_install_reaper.sh   # download + install REAPER (aarch64 eval)
-bash setup/03_led_service.sh      # venv + python-osc + systemd LED service
 bash setup/04_vnc_and_autostart.sh  # enable VNC, kiosk autologin, REAPER autostart
 bash setup/05_install_reaper_extensions.sh  # SWS/S&M + ReaPack (restart REAPER after)
 ```
 Or run all at once: `bash setup/run_all.sh`
 
+Do not run `setup/03_led_service.sh` on the custom shield. It belongs to the
+older direct-GPIO design and will be replaced by the RP2350B SPI service.
+
 After `02_install_reaper.sh`, REAPER must be **launched once via VNC/HDMI** to
 create `reaper.ini`, then the audio device and OSC control surface are
 configured manually (see [reaper/OSC_SETUP.md](reaper/OSC_SETUP.md)) — this
 only needs doing once, then `reaper.ini` is copied verbatim to the other Pis.
+
+Before connecting speakers or enabling the amplifier, complete the repeatable
+[PCM5102A DAC acceptance test](DAC_TEST.md) on each unit.
+
+Before applying 12 V, complete the mandatory control-net rework and staged
+[TPA3118D2 amplifier test](AMP_TEST.md).
+
+RP2350B firmware flashing, the SPI pin map, command protocol, and pattern test
+are documented in [RP2350.md](RP2350.md).
 
 ## REAPER extensions (SWS/S&M + ReaPack)
 

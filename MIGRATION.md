@@ -1,5 +1,10 @@
 # Migration — cloning the verified sjcdm1 build to Pi 2-5
 
+> **12 V HOLD FOR ALL FIVE SHIELDS:** Complete the R78/R79/R81 control rework
+> and C65/C67 input rework in [AMP_TEST.md](AMP_TEST.md) before any external
+> 12 V test. Also connect PCM5102A `XSMT` to `+3.3VDAC` as documented in
+> [DAC_TEST.md](DAC_TEST.md). These corrections cannot be replaced by firmware.
+
 Once `sjcdm1` is fully tested end-to-end (audio via Audio+ shield, LED sync
 via OSC, kiosk autostart, VNC access), replicate it to the remaining 4 Pis.
 
@@ -20,8 +25,10 @@ Best when you have physical access to all Pis before installation.
      `sudo rm /etc/ssh/ssh_host_*; sudo dpkg-reconfigure openssh-server`.
    - If REAPER's evaluation/license is per-machine, re-enter the license (see
      REAPER > Help > About REAPER).
-   - Confirm the Audio+ shield is detected: `aplay -l` should show
-     `sndrpihifiberry` — no config changes should be needed (EEPROM auto-detect).
+   - Run `bash setup/01_audio_dac.sh` and confirm `aplay -l` shows
+     `sndrpihifiberry`. The script plays a quiet left/right DAC test.
+   - Flash the RP2350B over SWD and run the SPI bounce test as documented in
+     [RP2350.md](RP2350.md).
 
 ## Option B — scripted install (use if imaging isn't practical)
 
@@ -53,15 +60,23 @@ ssh -i "$env:USERPROFILE\.ssh\id_ed25519_dreammachine" -o IdentitiesOnly=yes `
 ```
 
 Then verify: Pi boots to desktop unattended, REAPER autostarts and plays,
-audio comes out the shield, LED service is `active (running)`
-(`systemctl status dreammachine-led.service`), and VNC is reachable.
+audio comes out the shield, the RP2350B responds to an SPI pattern command,
+and VNC is reachable. The legacy `dreammachine-led.service` must remain
+disabled until it is replaced by the SPI controller service.
+
+Each unit is mono left-channel only. Connect the speaker to AUDIOOUT1 pins 1-2,
+leave pins 3-4 open, and verify the startup wrapper applies the REAPER master
+mono script before unmuting IC1.
 
 ## Fleet tracking
 
-| Pi | Hostname | IP | SSH key installed | REAPER+OSC configured | LED service verified |
-|---|---|---|---|---|---|
-| 1 (reference) | sjcdm1 | 192.168.88.104 | ✔ | 🔄 in progress | 🔄 in progress |
-| 2 | TBD | TBD | ✗ | ✗ | ✗ |
-| 3 | TBD | TBD | ✗ | ✗ | ✗ |
-| 4 | TBD | TBD | ✗ | ✗ | ✗ |
-| 5 | TBD | TBD | ✗ | ✗ | ✗ |
+| Pi | Hostname | IP | SSH key | DAC/ALSA | RP2350 SWD | SPI pattern | REAPER+OSC |
+|---|---|---|---|---|---|---|---|
+| 1 | sjcdm1 | 192.168.88.104 | ✔ | software pass | ✔ | visual pass | 🔄 |
+| 2 | TBD | TBD | ✗ | ✗ | ✗ | ✗ | ✗ |
+| 3 | TBD | TBD | ✗ | ✗ | ✗ | ✗ | ✗ |
+| 4 | TBD | TBD | ✗ | ✗ | ✗ | ✗ | ✗ |
+| 5 | TBD | TBD | ✗ | ✗ | ✗ | ✗ | ✗ |
+
+The TPA3118 control-net rework and staged amplifier test in
+[AMP_TEST.md](AMP_TEST.md) are mandatory for every shield before 12 V operation.

@@ -37,13 +37,6 @@ fi
 echo "==> configuring REAPER autostart on desktop login (X11 / lxsession rpd-x)"
 DREAMMACHINE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 START_SCRIPT="${DREAMMACHINE_DIR}/systemd/start_reaper.sh"
-cat >"${START_SCRIPT}" <<EOF
-#!/usr/bin/env bash
-# Launches REAPER after a short delay to let the desktop/audio stack settle.
-# Used as an lxsession (rpd-x/X11) autostart entry.
-sleep 8
-exec /usr/local/bin/reaper "${REAPER_PROJECT_PATH}"
-EOF
 chmod +x "${START_SCRIPT}"
 
 LXSESSION_DIR="${HOME}/.config/lxsession/rpd-x"
