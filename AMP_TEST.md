@@ -17,9 +17,17 @@ The assembled PCB has three 100 kΩ resistors connected to `+12V`:
 
 | Resistor | TPA3118 signal | RP2350B pin | Existing connection | Required connection |
 | --- | --- | --- | --- | --- |
-| R79 | `SDZ` | GPIO28 | 100 kΩ pull-up to +12 V | 100 kΩ pull-down to GND |
+| R79 | `SDZ` | GPIO28 | 100 kΩ pull-up to +12 V | 100 kΩ pull-up to 3.3 V |
 | R78 | `FAULTZ` | GPIO29 | 100 kΩ pull-up to +12 V | 100 kΩ pull-up to 3.3 V |
 | R81 | `MUTE` | GPIO30 | 100 kΩ pull-up to +12 V | 100 kΩ pull-up to 3.3 V |
+
+Fleet-wide revision (2026-09-17): R79 was originally specified as a pull-down
+to GND so `SDZ` defaulted low (shutdown) whenever the RP2350B GPIO was
+undriven. All three control nets now share a single 3.3 V attachment point
+instead, so the amplifier's power-up/reset/BOOTSEL/SWD-halt state depends
+entirely on RP2350B firmware driving `SDZ` low at boot, not on the resistor
+network. Never apply +12V while the RP2350B is unprogrammed, in BOOTSEL, or
+halted under SWD.
 
 The TPA3118 permits its control inputs to reach PVCC, but these nets also
 connect directly to RP2350B GPIOs. They must therefore stay within the RP2350B
@@ -28,10 +36,14 @@ maximum is 5.5 V when IOVDD is 3.3 V. A 100 kΩ series resistor limits current
 but does not make 12 V valid. TPA3118 logic high requires at least 2 V, so
 3.3 V is valid for all three control nets.
 
-The revised defaults are fail-safe:
+The revised defaults:
 
-- `SDZ` low: amplifier shut down while RP2350B resets or is unprogrammed.
-- `MUTE` high: amplifier muted while RP2350B resets or is unprogrammed.
+- `SDZ` pulled to 3.3 V: floats HIGH (outputs enabled) whenever the RP2350B
+  GPIO is undriven (unprogrammed, reset, BOOTSEL, or SWD halt). Shutdown in
+  that state is no longer hardware-guaranteed; it depends on firmware driving
+  `SDZ` low immediately at boot. Do not power +12V during flashing/debugging.
+- `MUTE` high: amplifier muted while RP2350B resets or is unprogrammed. This
+  remains hardware fail-safe because the pull-up target is unchanged.
 - `FAULTZ` pulled up to 3.3 V: safe for the RP2350B input.
 
 ### Parts and tools
@@ -84,8 +96,8 @@ pin is also a suitable, mechanically accessible GND anchor. Do not use `+12V`,
    solder is solid because the 0402 pads lift easily.
 6. Clean the pads. Verify the three original pad-2 lands still connect to
    `+12V`, and none is bridged to pad 1.
-7. Reinstall a 100 kΩ resistor from **R79 pad 1 (`SDZ`) to GND**. Leave the
-   original R79 pad-2 `+12V` land empty.
+7. Reinstall a 100 kΩ resistor from **R79 pad 1 (`SDZ`) to C40 pad 1
+   (`3V3`)**. Leave the original R79 pad-2 `+12V` land empty.
 8. Reinstall a 100 kΩ resistor from **R78 pad 1 (`FAULTZ`) to C40 pad 1
    (`3V3`)**. Leave the original R78 pad-2 land empty.
 9. Reinstall a 100 kΩ resistor from **R81 pad 1 (`MUTE`) to C40 pad 1
@@ -358,13 +370,17 @@ speaker voltage.
 Do not mark a shield complete until both unpowered and logic-only voltage tests
 pass. Attach close-up before/after photographs to the build record.
 
-| Shield | R79 SDZ->GND | R78 FAULTZ->3V3 | R81 MUTE->3V3 | No path to +12V | Logic voltages | Technician/date |
+| Shield | R79 SDZ->3V3 | R78 FAULTZ->3V3 | R81 MUTE->3V3 | No path to +12V | Logic voltages | Technician/date |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 / sjcdm1 | pass | pass | pass | pass | pass | 2026-09-17 |
-| 2 | pending | pending | pending | pending | pending |  |
-| 3 | pending | pending | pending | pending | pending |  |
-| 4 | pending | pending | pending | pending | pending |  |
-| 5 | pending | pending | pending | pending | pending |  |
+| 1 / sjcdm1 | lifted, 3V3 pending | pass | lifted, 3V3 pending | pass | pending | 2026-09-17 |
+| 2 | lifted, 3V3 pending | pending | lifted, 3V3 pending | pending | pending |  |
+| 3 | lifted, 3V3 pending | pending | lifted, 3V3 pending | pending | pending |  |
+| 4 | lifted, 3V3 pending | pending | lifted, 3V3 pending | pending | pending |  |
+| 5 | lifted, 3V3 pending | pending | lifted, 3V3 pending | pending | pending |  |
+
+Shield 1 previously passed with R79 wired to GND (see history above). R79 and
+R81 were re-lifted from +12V on all five shields to move to the shared 3.3 V
+attachment point; the 3.3 V connection itself is the pending next step.
 
 ## Mandatory single-ended input rework
 
@@ -387,46 +403,45 @@ now accepted and guarded amplifier testing may resume.
 
 Texas Instruments specifies that, for a single-ended source, the audio signal
 goes to one input and the other input is AC-grounded through an equal-value
-capacitor. Keep C68 and C66 connected to the PCM5102 outputs. Change only the
-source side of C65 and C67 to GND:
+capacitor. Keep C68 connected to the PCM5102 output. Change only the source
+side of C65 to GND:
+
+This project plays mono audio on the left channel only. The right-channel
+input (C67/C66/`RINP`/`RINN`) is therefore left completely stock on every
+shield; the cancellation described above still applies to the unused right
+channel, which is harmless since it is never driven into the speaker. Only
+C65 (left channel) needs the rework below.
 
 | Part | Position | Existing pad 1 | Pad 2 | Required pad 1 |
 | --- | --- | --- | --- | --- |
 | C65 | X=60.6173, Y=55.3341 mm | `OUTL` | `LINN` | GND |
-| C67 | X=66.9800, Y=58.0900 mm | `OUTR` | `RINN` | GND |
+| C67 | X=66.9800, Y=58.0900 mm | `OUTR` | `RINN` | Not reworked - stays stock (right channel unused) |
 
 ### Input rework procedure
 
 1. Mute and shut down the amplifier, shut down the Pi, then disconnect every
    power source and the speaker.
 2. Verify all rails are below 0.1 V.
-3. Identify C65 and C67. Both are 1 uF 1206 capacitors.
-4. Continuity-test each end before soldering:
-   - C65 pad 1 currently beeps to PCM5102 `OUTL`.
-   - C67 pad 1 currently beeps to PCM5102 `OUTR`.
-   - Pad 2 must remain connected to the corresponding TPA3118 negative input.
+3. Identify C65. It is a 1 uF 1206 capacitor.
+4. Continuity-test before soldering: C65 pad 1 currently beeps to PCM5102
+   `OUTL`. Pad 2 must remain connected to `LINN`.
 5. Isolate C65 pad 1 from `OUTL`. Either lift only the capacitor's pad-1 end or
    remove C65 and reinstall it with pad 1 lifted. Do not remove the PCB pad.
 6. Connect the lifted/free C65 pad-1 terminal to GND with a short insulated
    wire. Leave C65 pad 2 on its original `LINN` PCB pad.
-7. Repeat for C67: isolate pad 1 from `OUTR`, connect that capacitor terminal
-   to GND, and leave pad 2 connected to `RINN`.
-8. Keep C68 (`OUTL` to `LINP`) and C66 (`OUTR` to `RINP`) unchanged.
-9. Inspect and provide strain relief only after electrical tests pass.
+7. Leave C67, C68, and C66 unchanged. C67/C66 (right channel) are not
+   reworked because the right channel is unused in this mono design.
+8. Inspect and provide strain relief only after electrical tests pass.
 
 ### Input rework verification
 
 With all power disconnected:
 
 - C65 pad 1 to GND: continuity.
-- C67 pad 1 to GND: continuity.
 - C65 pad 1 to `OUTL`: no continuity.
-- C67 pad 1 to `OUTR`: no continuity.
 - C65 pad 2 to GND: not a direct short; it reaches `LINN` through the original
   trace and remains separated by C65.
-- C67 pad 2 to GND: not a direct short; it reaches `RINN` through the original
-  trace and remains separated by C67.
-- C68 and C66 remain connected to `OUTL` and `OUTR`, respectively.
+- C68 remains connected to `OUTL`. C67 and C66 remain stock, unchanged.
 
 Repeat the logic-only and enabled-muted checks before reconnecting a speaker.
 
@@ -436,10 +451,10 @@ C68 pad 2 (`LINP`) showed the clean 1 kHz left-channel waveform and C65 pad 2
 
 ### Five-shield input rework record
 
-| Shield | C65 source->GND | C67 source->GND | C68 unchanged | C66 unchanged | Continuity pass | Technician/date |
-| --- | --- | --- | --- | --- | --- | --- |
-| 1 / sjcdm1 | pass | pass | pass | pass | pass | 2026-09-17 |
-| 2 | pending | pending | pending | pending | pending |  |
-| 3 | pending | pending | pending | pending | pending |  |
-| 4 | pending | pending | pending | pending | pending |  |
-| 5 | pending | pending | pending | pending | pending |  |
+| Shield | C65 source->GND | C67 (right ch., not reworked) | C68 unchanged | Continuity pass | Technician/date |
+| --- | --- | --- | --- | --- | --- |
+| 1 / sjcdm1 | pass | stock (previously reworked to GND; harmless, left as-is) | pass | pass | 2026-09-17 |
+| 2 | pending | stock (not required) | pending | pending |  |
+| 3 | pending | stock (not required) | pending | pending |  |
+| 4 | pending | stock (not required) | pending | pending |  |
+| 5 | pending | stock (not required) | pending | pending |  |
