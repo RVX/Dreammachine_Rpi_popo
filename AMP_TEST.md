@@ -13,38 +13,45 @@ low and `MUTE` high, and command `0x00` also shuts the amplifier down.
 
 ## Mandatory control-net rework
 
-The assembled PCB has three 100 kΩ resistors connected to `+12V`:
+The assembled PCB originally had three 100 kΩ resistors connected to `+12V`:
 
 | Resistor | TPA3118 signal | RP2350B pin | Existing connection | Required connection |
 | --- | --- | --- | --- | --- |
-| R79 | `SDZ` | GPIO28 | 100 kΩ pull-up to +12 V | 100 kΩ pull-up to 3.3 V |
-| R78 | `FAULTZ` | GPIO29 | 100 kΩ pull-up to +12 V | 100 kΩ pull-up to 3.3 V |
-| R81 | `MUTE` | GPIO30 | 100 kΩ pull-up to +12 V | 100 kΩ pull-up to 3.3 V |
+| R79 | `SDZ` | GPIO28 | 100 kΩ pull-up to +12 V | Removed - no resistor, GPIO drives the net directly |
+| R78 | `FAULTZ` | GPIO29 | 100 kΩ pull-up to +12 V | 100 kΩ pull-up to 3.3 V (only resistor kept) |
+| R81 | `MUTE` | GPIO30 | 100 kΩ pull-up to +12 V | Removed - no resistor, GPIO drives the net directly |
 
-Fleet-wide revision (2026-09-17): R79 was originally specified as a pull-down
-to GND so `SDZ` defaulted low (shutdown) whenever the RP2350B GPIO was
-undriven. All three control nets now share a single 3.3 V attachment point
-instead, so the amplifier's power-up/reset/BOOTSEL/SWD-halt state depends
-entirely on RP2350B firmware driving `SDZ` low at boot, not on the resistor
-network. Never apply +12V while the RP2350B is unprogrammed, in BOOTSEL, or
-halted under SWD.
+Fleet-wide revision (2026-09-17): all five boards now have R79 and R81 fully
+removed rather than rewired. `SDZ` and `MUTE` are driven exclusively by RP2350B
+GPIO28/GPIO30 push-pull outputs, with no external pull resistor at all. R78
+is the only 100 kΩ resistor that remains on any of the five boards, because
+`FAULTZ` is an open-drain output from the TPA3118 and needs an external
+pull-up to be readable as a logic level on GPIO29.
 
-The TPA3118 permits its control inputs to reach PVCC, but these nets also
-connect directly to RP2350B GPIOs. They must therefore stay within the RP2350B
-IOVDD domain. GPIO28-30 are fail-tolerant RP2350 pads, but their absolute
+Removing R79/R81 entirely means `SDZ` and `MUTE` are fully floating, not
+biased toward either rail, whenever the RP2350B GPIO is not actively driving
+them (unprogrammed, in reset, in BOOTSEL, or halted under SWD). A floating
+CMOS-level input on the TPA3118 can settle to either state from noise
+pickup. Never apply +12V while the RP2350B is unprogrammed, in BOOTSEL, or
+halted under SWD, and keep firmware initializing `SDZ` low / `MUTE` high as
+the very first GPIO operation at boot.
+
+The TPA3118 permits its control inputs to reach PVCC, but `FAULTZ` also
+connects directly to an RP2350B GPIO and must therefore stay within the
+RP2350B IOVDD domain. GPIO29 is a fail-tolerant RP2350 pad, but its absolute
 maximum is 5.5 V when IOVDD is 3.3 V. A 100 kΩ series resistor limits current
-but does not make 12 V valid. TPA3118 logic high requires at least 2 V, so
-3.3 V is valid for all three control nets.
+but does not make 12 V valid; 3.3 V is the correct pull-up target.
 
 The revised defaults:
 
-- `SDZ` pulled to 3.3 V: floats HIGH (outputs enabled) whenever the RP2350B
-  GPIO is undriven (unprogrammed, reset, BOOTSEL, or SWD halt). Shutdown in
-  that state is no longer hardware-guaranteed; it depends on firmware driving
-  `SDZ` low immediately at boot. Do not power +12V during flashing/debugging.
-- `MUTE` high: amplifier muted while RP2350B resets or is unprogrammed. This
-  remains hardware fail-safe because the pull-up target is unchanged.
-- `FAULTZ` pulled up to 3.3 V: safe for the RP2350B input.
+- `SDZ` floating (no resistor): undefined state whenever the RP2350B GPIO is
+  undriven. Shutdown in that state is not hardware-guaranteed at all; it
+  depends entirely on firmware driving `SDZ` low immediately at boot.
+- `MUTE` floating (no resistor): same caveat as `SDZ`, now also without any
+  hardware fail-safe bias. Firmware must drive `MUTE` high immediately at
+  boot for the mute-by-default behavior to hold.
+- `FAULTZ` pulled up to 3.3 V: safe for the RP2350B input, and the only net
+  with an external bias resistor.
 
 ### Parts and tools
 
@@ -52,9 +59,9 @@ The revised defaults:
   air suitable for 0402 parts.
 - Flux, fine solder, tweezers, magnification, and solder wick.
 - 30 AWG insulated or enamelled rework wire.
-- Three 100 kΩ resistors per shield. Reuse the original 0402 resistors only if
-  they can be handled reliably; otherwise use new 0402/0603 or small axial
-  resistors.
+- One 100 kΩ resistor per shield, for R78 only. Reuse the original 0402
+  resistor only if it can be handled reliably; otherwise use a new 0402/0603
+  or small axial resistor. R79 and R81 are removed and not reinstalled.
 - Multimeter with continuity, resistance, and DC-voltage modes.
 - Kapton tape and, after electrical verification, electronics-safe adhesive to
   provide strain relief. Do not glue before testing.
@@ -96,22 +103,23 @@ pin is also a suitable, mechanically accessible GND anchor. Do not use `+12V`,
    solder is solid because the 0402 pads lift easily.
 6. Clean the pads. Verify the three original pad-2 lands still connect to
    `+12V`, and none is bridged to pad 1.
-7. Reinstall a 100 kΩ resistor from **R79 pad 1 (`SDZ`) to C40 pad 1
-   (`3V3`)**. Leave the original R79 pad-2 `+12V` land empty.
+7. Leave R79 pad 1 (`SDZ`) and R79 pad 2 (former `+12V`) both open. Do not
+   reinstall a resistor here; `SDZ` is driven solely by GPIO28.
 8. Reinstall a 100 kΩ resistor from **R78 pad 1 (`FAULTZ`) to C40 pad 1
-   (`3V3`)**. Leave the original R78 pad-2 land empty.
-9. Reinstall a 100 kΩ resistor from **R81 pad 1 (`MUTE`) to C40 pad 1
-   (`3V3`)**. Leave the original R81 pad-2 land empty.
-10. Route wires away from IC1 output traces, inductors, and the SW node. Keep
-    them flat, avoid sharp bends at pads, and temporarily secure with Kapton.
+   (`3V3`)**. Leave the original R78 pad-2 land empty. This is the only
+   resistor reinstalled in this rework.
+9. Leave R81 pad 1 (`MUTE`) and R81 pad 2 (former `+12V`) both open. Do not
+   reinstall a resistor here; `MUTE` is driven solely by GPIO30.
+10. Route the R78 wire away from IC1 output traces, inductors, and the SW
+    node. Keep it flat, avoid sharp bends at pads, and temporarily secure
+    with Kapton.
 11. Inspect for solder balls, lifted pads, bridges, or exposed wire. Do not
     apply adhesive until all electrical tests pass.
 
-An acceptable alternative is to leave each resistor attached to pad 1 and
-lift only its pad-2 end, then connect that free resistor end to the destination
-rail. The lifted end must have visible clearance from the old `+12V` pad and
-must receive strain relief. Removing and rewiring the parts is usually easier
-to inspect consistently across five boards.
+An acceptable alternative for R78 is to leave it attached to pad 1 and lift
+only its pad-2 end, then connect that free end to the destination rail. The
+lifted end must have visible clearance from the old `+12V` pad and must
+receive strain relief.
 
 ## Verify before applying 12 V
 
@@ -119,11 +127,11 @@ to inspect consistently across five boards.
 
 With every power source disconnected, use continuity/resistance mode:
 
-- GPIO28/`SDZ` to GND: approximately 100 kΩ.
+- GPIO28/`SDZ` to GND or 3.3 V: open circuit (no resistor present).
 - GPIO29/`FAULTZ` to 3.3 V: approximately 100 kΩ.
-- GPIO30/`MUTE` to 3.3 V: approximately 100 kΩ.
-- GPIO28, GPIO29, and GPIO30 to `+12V`: no 100 kΩ path. A reading near 100 kΩ
-  is an automatic failure and means the old connection remains.
+- GPIO30/`MUTE` to GND or 3.3 V: open circuit (no resistor present).
+- GPIO28, GPIO29, and GPIO30 to `+12V`: no path at all. Any continuity here
+  is an automatic failure and means an old connection remains.
 - `3V3` to GND: no short.
 - `+12V` to GND: no short.
 
@@ -133,11 +141,12 @@ Install the shield and power the Raspberry Pi only from its USB-C connector.
 Keep bench `+12V` disconnected. The fail-safe RP2350 firmware must already be
 installed. Verify:
 
-- `SDZ`: near 0 V.
-- `MUTE`: near 3.3 V.
+- `SDZ`: near 0 V, driven directly by GPIO28 (no resistor to fight against).
+- `MUTE`: near 3.3 V, driven directly by GPIO30 (no resistor to fight against).
 - `FAULTZ`: near 3.3 V when no fault is asserted.
 - C40 pad 1: approximately 3.3 V.
-- All three original pad-2 lands: 0 V because `+12V` is absent.
+- The former R79/R81 pad-2 `+12V` lands: 0 V because `+12V` is absent, and no
+  longer connected to anything (R79/R81 removed).
 
 Send the shutdown command before continuing:
 
@@ -370,17 +379,18 @@ speaker voltage.
 Do not mark a shield complete until both unpowered and logic-only voltage tests
 pass. Attach close-up before/after photographs to the build record.
 
-| Shield | R79 SDZ->3V3 | R78 FAULTZ->3V3 | R81 MUTE->3V3 | No path to +12V | Logic voltages | Technician/date |
+| Shield | R79 removed (no resistor) | R78 FAULTZ->3V3 | R81 removed (no resistor) | No path to +12V | Logic voltages | Technician/date |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 / sjcdm1 | lifted, 3V3 pending | pass | lifted, 3V3 pending | pass | pending | 2026-09-17 |
-| 2 | lifted, 3V3 pending | pending | lifted, 3V3 pending | pending | pending |  |
-| 3 | lifted, 3V3 pending | pending | lifted, 3V3 pending | pending | pending |  |
-| 4 | lifted, 3V3 pending | pending | lifted, 3V3 pending | pending | pending |  |
-| 5 | lifted, 3V3 pending | pending | lifted, 3V3 pending | pending | pending |  |
+| 1 / sjcdm1 | pass | pass | pass | pass | pending | 2026-09-17 |
+| 2 | pass | pending | pass | pending | pending |  |
+| 3 | pass | pending | pass | pending | pending |  |
+| 4 | pass | pending | pass | pending | pending |  |
+| 5 | pass | pending | pass | pending | pending |  |
 
-Shield 1 previously passed with R79 wired to GND (see history above). R79 and
-R81 were re-lifted from +12V on all five shields to move to the shared 3.3 V
-attachment point; the 3.3 V connection itself is the pending next step.
+R79 and R81 are confirmed physically removed on all five shields; that
+column tracks confirmation the pads are open with no residual bridge to
+`+12V`, GND, or 3.3 V. R78 remains the only 100 kΩ resistor and is the only
+net requiring a soldered 3.3 V connection.
 
 ## Mandatory single-ended input rework
 
