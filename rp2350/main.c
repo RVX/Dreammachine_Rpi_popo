@@ -139,6 +139,12 @@ int main(void) {
             printf("SPI command 0x%02x\n", command);
             execute_command(command);
         }
+
+        const int usb_command = getchar_timeout_us(0);
+        if (usb_command >= 0 && usb_command <= UINT8_MAX) {
+            printf("USB command 0x%02x\n", usb_command);
+            execute_command((uint8_t)usb_command);
+        }
         tight_loop_contents();
     }
 }
