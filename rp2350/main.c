@@ -103,11 +103,16 @@ static void execute_command(uint8_t command) {
 }
 
 int main(void) {
+    // R79/R81 are removed from the board: these pins have no external bias,
+    // so the internal pad pull is the only thing holding a safe level before
+    // gpio_set_dir(GPIO_OUT) below takes effect (e.g. boot ROM/BOOTSEL).
     gpio_init(AMP_SDZ_PIN);
+    gpio_pull_down(AMP_SDZ_PIN);
     gpio_put(AMP_SDZ_PIN, false);
     gpio_set_dir(AMP_SDZ_PIN, GPIO_OUT);
 
     gpio_init(AMP_MUTE_PIN);
+    gpio_pull_up(AMP_MUTE_PIN);
     gpio_put(AMP_MUTE_PIN, true);
     gpio_set_dir(AMP_MUTE_PIN, GPIO_OUT);
 
