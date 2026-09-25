@@ -8,6 +8,14 @@
 Once `sjcdm1` is fully tested end-to-end (audio via Audio+ shield, LED sync
 via OSC, kiosk autostart, VNC access), replicate it to the remaining 4 Pis.
 
+**First step for any new unit**: flash its SD card using the cloud-init
+templates in [provisioning/](provisioning/) — that makes the Pi identifiable
+(`sjcdm<N>` hostname, SSH banner), reachable (SSH + mDNS `sjcdm<N>.local`,
+Ethernet link-local fallback `169.254.<N>.<N>`), and remotely manageable
+(RustDesk, password `OMRdream<N>`) from the very first boot, on any site
+network or a direct laptop Ethernet cable. Then choose option A or B below
+to deploy the DREAMMACHINE software itself.
+
 Two options — pick based on time available on site vs. remotely:
 
 ## Option A — SD card image clone (verified procedure, cloud-init based)
@@ -172,18 +180,20 @@ mono script before unmuting IC1.
 
 | Pi | Hostname | IP | SSH key | DAC/ALSA | RP2350 SWD | SPI pattern | REAPER+OSC |
 |---|---|---|---|---|---|---|---|
-| 1 | sjcdm1 | 192.168.88.104 | ✔ | software pass | ✔ | visual pass | 🔄 |
-| 2 | sjcdm2 | TBD | 🔄 regenerates on first boot | ✗ | ✗ | ✗ | ✗ |
-| 3 | sjcdm3 | TBD | 🔄 regenerates on first boot | ✗ | ✗ | ✗ | ✗ |
-| 4 | sjcdm4 | TBD | 🔄 regenerates on first boot | ✗ | ✗ | ✗ | ✗ |
-| 5 | TBD | TBD | ✗ | ✗ | ✗ | ✗ | ✗ |
+| 1 | sjcdm1 | 192.168.88.104 (home) | ✔ | software pass | ✔ | visual pass | 🔄 |
+| 2 | sjcdm2 | 169.254.2.2 (eth fallback) | via provisioning template | ✗ | ✗ | ✗ | ✗ |
+| 3 | sjcdm3 | 169.254.3.3 (eth fallback) | via provisioning template | ✗ | ✗ | ✗ | ✗ |
+| 4 | sjcdm4 | 169.254.4.4 (eth fallback); DHCP on OMR-VISITAS | ✔ (cloud-init) | ✗ | ✗ | ✗ | ✗ |
+| 5 | sjcdm5 | 169.254.5.5 (eth fallback) | via provisioning template | ✗ | ✗ | ✗ | ✗ |
 
 Units 2-4: SD cards cloned from `sjcdm1` and renamed per Option A
-(2026-09-18). None installed/booted in their target Pi yet — every column
+(2026-09-18). sjcdm4 additionally re-imaged via the cloud-init templates in
+[provisioning/](provisioning/) (2026-09-25) — first boot installs RustDesk
+(password `OMRdream4`, direct-IP enabled), SSH banner, and mDNS
+advertisement. None installed/booted in their target Pi yet — every column
 past hostname is still outstanding until first boot and the per-unit
 checklist above. One blank card intended for this batch was discarded as a
 confirmed fake (0 bytes usable via `f3probe`); see the fake-card note above.
-
 
 The TPA3118 control-net rework and staged amplifier test in
 [AMP_TEST.md](AMP_TEST.md) are mandatory for every shield before 12 V operation.

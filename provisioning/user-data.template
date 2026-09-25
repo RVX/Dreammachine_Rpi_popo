@@ -1,0 +1,109 @@
+#cloud-config
+# DREAMMACHINE cloud-init user-data template for Raspberry Pi OS (Imager v2 format).
+# One file per unit: copy to user-data and set hostname sjcdm<N> before flashing.
+# First boot does: SSH + mDNS, RustDesk (fixed per-unit password OMRdream<N>,
+# direct-IP enabled), SSH login banner with hostname/IPs, avahi SSH advertisement.
+manage_resolv_conf: false
+
+hostname: sjcdmN          # <-- CHANGE per unit: sjcdm2, sjcdm3, sjcdm4, sjcdm5
+manage_etc_hosts: true
+packages:
+- avahi-daemon
+- curl
+- figlet
+apt:
+  preserve_sources_list: true
+  conf: |
+    Acquire {
+      Check-Date "false";
+    };
+timezone: Europe/Madrid
+keyboard:
+  model: pc105
+  layout: "es"
+user:
+  name: sjc
+  shell: /bin/bash
+  lock_passwd: false
+  # Set per-unit hashed password at image time (Raspberry Pi Imager does this,
+  # or generate with: openssl passwd -6). Default below is sjcsjc.
+  passwd: "$y$jB5$OpYBW/nQlQqP77rRgdIF0/$IXTSWS15uYoxRcDKol1pwuTnaxONXl045zDWSneUws/"
+  ssh_authorized_keys:
+    - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHtzs5WjIRKy5zZnc0z1GGvKBjFVIf1vCukw6QWqtX9G dreammachine-pi
+ssh_pwauth: true
+
+write_files:
+  - path: /usr/local/bin/dreammachine-firstboot.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # First-boot site configuration for DREAMMACHINE units.
+      # Installs + configures RustDesk with a fixed per-unit unattended password.
+      # Logs to /var/log/dreammachine-firstboot.log; self-removes when done.
+      exec > /var/log/dreammachine-firstboot.log 2>&1
+      set -x
+
+      HOSTNAME_SHORT=$(hostname)                      # e.g. sjcdm4
+      UNIT_NUM=${HOSTNAME_SHORT#sjcdm}                # -> 4
+      RUSTDESK_PASSWORD="OMRdream${UNIT_NUM}"         # -> OMRdream4
+
+      # --- RustDesk (aarch64, Debian 13 / trixie) ---
+      if ! dpkg -s rustdesk >/dev/null 2>&1; then
+        cd /tmp
+        if curl -fsSL -o rustdesk.deb https://github.com/rustdesk/rustdesk/releases/latest/download/rustdesk-1.4.4-aarch64-debian-13.deb; then
+          apt-get install -y ./rustdesk.deb
+        fi
+      fi
+      sudo -u sjc rustdesk --password "$RUSTDESK_PASSWORD" || true
+      sudo -u sjc rustdesk --option direct-server Y || true
+      sudo -u sjc rustdesk --option verification-method use-permanent-password || true
+      systemctl enable rustdesk || true
+
+      # --- SSH banner: show hostname + IPs + RustDesk password on every login ---
+      cat > /etc/profile.d/dreammachine-banner.sh <<'BANNER'
+      #!/bin/sh
+      echo ""
+      figlet -w 60 "  $(hostname)" 2>/dev/null || echo "=== $(hostname) ==="
+      echo "  IPs: $(hostname -I)"
+      echo "  RustDesk pwd: OMRdream${HOSTNAME#sjcdm}"
+      echo ""
+      BANNER
+      chmod +x /etc/profile.d/dreammachine-banner.sh
+
+      # --- Avahi service file so the Pi shows up in network browsers ---
+      cat > /etc/avahi/services/ssh.service <<'AVHI'
+      <?xml version="1.0" standalone="no"?>
+      <!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+      <service-group>
+        <name replace-wildcards="yes">%h</name>
+        <service><type>_ssh._tcp</type><port>22</port></service>
+        <service><type>_sftp-ssh._tcp</type><port>22</port></service>
+      </service-group>
+      AVHI
+
+      # One-shot cleanup.
+      systemctl disable dreammachine-firstboot.service || true
+      rm -f /etc/systemd/system/dreammachine-firstboot.service
+      systemctl daemon-reload
+      exit 0
+
+  - path: /etc/systemd/system/dreammachine-firstboot.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=DREAMMACHINE first-boot site configuration
+      After=network-online.target graphical.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/dreammachine-firstboot.sh
+      RemainAfterExit=no
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  - [ systemctl, daemon-reload ]
+  - [ systemctl, enable, dreammachine-firstboot.service ]
+  - [ systemctl, enable, --now, ssh ]

@@ -108,6 +108,8 @@ config/           dreammachine.env — single source of config (pins, ports, pat
 led/              led_controller.py — OSC-driven LED controller (systemd service)
 reaper/           placeholder project + OSC setup instructions
 systemd/          unit files installed on the Pi
+tools/            utilities (speaker_test: speaker comparison/calibration signals)
+provisioning/     cloud-init templates for first-boot (RustDesk, SSH, mDNS, site network)
 MIGRATION.md      steps to clone the working setup to Pi 2-5
 ```
 

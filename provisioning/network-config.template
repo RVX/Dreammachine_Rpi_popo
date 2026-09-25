@@ -1,0 +1,26 @@
+# DREAMMACHINE cloud-init network-config template for Raspberry Pi OS (Imager v2).
+# Same file for every unit EXCEPT the two placeholders below.
+#
+# eth0: DHCP + static link-local fallback so a direct laptop<->Pi Ethernet
+#       cable always works with no router (static IP = 169.254.<UNIT>.<UNIT>,
+#       easy to spot which unit it is).
+# wlan0: add each site's WiFi under access-points (home + current venue).
+network:
+  version: 2
+  ethernets:
+    eth0:
+      dhcp4: true
+      dhcp6: true
+      optional: true
+      addresses: [169.254.N.N/16]        # <-- CHANGE per unit, e.g. 169.254.4.4/16
+  wifis:
+    wlan0:
+      dhcp4: true
+      regulatory-domain: "ES"
+      access-points:
+        "VMB0472_5G":
+          # Home/studio network (hashed PSK).
+          password: "d88d06ea9fe58956cda32ad4cd64a7e4308a4042f8a6f2a2d53998a7b199c041"
+        "OMR-VISITAS":
+          password: "Visitas23OMR"       # <-- CHANGE/ADD per venue WiFi
+      optional: true
