@@ -1,0 +1,15 @@
+[Unit]
+Description=DREAMMACHINE WiFi Setup Portal (hotspot + captive portal)
+After=network.target
+# Only run if no WiFi is configured
+ConditionPathExists=!/home/sjc/.wifi_configured
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/python3 /home/sjc/dreammachine/provisioning/wifi_portal.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
