@@ -87,6 +87,55 @@ write_files:
       systemctl daemon-reload
       exit 0
 
+  - path: /usr/local/bin/dreammachine-tailscale.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # Join Tailscale after WiFi is configured
+      AUTH_KEY="tskey-auth-krgtTx2qEZ11CNTRL-FSuzLc4JU3GL7TdpEx3N3GwLfhjXzNBZ"
+      HOSTNAME=$(hostname)
+      
+      # Wait for internet (up to 2 minutes)
+      for i in {1..24}; do
+        if ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
+          break
+        fi
+        sleep 5
+      done
+      
+      # Skip if already joined
+      if tailscale status >/dev/null 2>&1; then
+        exit 0
+      fi
+      
+      # Install and join
+      curl -fsSL https://tailscale.com/install.sh | sh
+      tailscale up --authkey="$AUTH_KEY" --hostname="$HOSTNAME" --accept-routes
+      
+      # Log the Tailscale IP
+      tailscale ip -4 > /home/sjc/.tailscale-ip
+      
+      # Cleanup
+      systemctl disable dreammachine-tailscale.service || true
+      rm -f /etc/systemd/system/dreammachine-tailscale.service
+      systemctl daemon-reload
+
+  - path: /etc/systemd/system/dreammachine-tailscale.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=DREAMMACHINE Tailscale auto-join
+      After=network-online.target
+      Wants=network-online.target
+      
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/dreammachine-tailscale.sh
+      RemainAfterExit=no
+      
+      [Install]
+      WantedBy=multi-user.target
+
   - path: /etc/systemd/system/dreammachine-firstboot.service
     permissions: '0644'
     content: |
@@ -106,4 +155,5 @@ write_files:
 runcmd:
   - [ systemctl, daemon-reload ]
   - [ systemctl, enable, dreammachine-firstboot.service ]
+  - [ systemctl, enable, dreammachine-tailscale.service ]
   - [ systemctl, enable, --now, ssh ]
