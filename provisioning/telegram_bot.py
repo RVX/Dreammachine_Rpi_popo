@@ -85,10 +85,8 @@ def collect_status():
     rustdesk_id = run("sudo -n -u sjc rustdesk --get-id", timeout=8) or "n/a"
 
     # hardware
-    try:
-        temp = f"{int(run('cat /sys/class/thermal/thermal_zone0/temp0')) / 1000:.1f}C"
-    except Exception:
-        temp = "?"
+    temp_raw = run("vcgencmd measure_temp | grep -oP '[0-9.]+'")
+    temp = f"{temp_raw}C" if temp_raw else "?"
     throttled = run("vcgencmd get_throttled | cut -d= -f2")
     load = run("cut -d' ' -f1-3 /proc/loadavg")
     mem = run("free -m | awk '/^Mem:/ {print $3\"M/\"$2\"M\"}'")

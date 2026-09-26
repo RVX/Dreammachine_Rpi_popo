@@ -58,10 +58,8 @@ def get_info():
     tailscaled = run("systemctl is-active tailscaled") or "unknown"
 
     # Hardware health
-    try:
-        temp = f"{int(run('cat /sys/class/thermal/thermal_zone0/temp0')) / 1000:.1f}C"
-    except Exception:
-        temp = "?"
+    temp_raw = run("vcgencmd measure_temp | grep -oP '[0-9.]+'")
+    temp = f"{temp_raw}C" if temp_raw else "?"
     try:
         du = shutil.disk_usage("/")
         disk = f"{du.used // 2**30}G/{du.total // 2**30}G ({du.used * 100 // du.total}%)"
