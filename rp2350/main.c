@@ -1,6 +1,8 @@
 #include <stdio.h>
 
+#include "hardware/pwm.h"
 #include "hardware/spi.h"
+#include "hardware/timer.h"
 #include "pico/stdlib.h"
 
 enum {
@@ -15,15 +17,100 @@ enum {
 
 static const uint MOSFET_PINS[] = {33, 34, 35, 36, 37, 38};
 
+// Wrap 255 gives clean 0-100% steps; ~125 MHz / (255+1) / 4 = ~122 kHz.
+static const uint PWM_WRAP = 255;
+static const uint PWM_CLKDIV = 4;
+
+// Non-blocking fade state per channel
+static volatile int fade_brightness[6] = {0};
+static volatile int fade_target[6] = {0};
+static volatile int fade_step[6] = {0};  // +1 or -1, 0 = not fading
+static volatile uint32_t fade_last_update[6] = {0};
+static const uint32_t FADE_INTERVAL_MS = 20;  // 20ms per step = ~1s for full 0-255
+
+// Initialize PWM on a pin and set brightness
+static void pwm_set(size_t index, uint8_t percent) {
+    if (index >= count_of(MOSFET_PINS)) return;
+    if (percent > 100) percent = 100;
+    uint pin = MOSFET_PINS[index];
+    uint slice = pwm_gpio_to_slice_num(pin);
+    gpio_set_function(pin, GPIO_FUNC_PWM);
+    pwm_set_wrap(slice, PWM_WRAP);
+    pwm_set_clkdiv(slice, PWM_CLKDIV);
+    pwm_set_enabled(slice, true);
+    pwm_set_gpio_level(pin, (percent * (PWM_WRAP + 1)) / 100);
+}
+
+// Start a fade: direction = +1 for in, -1 for out
+static void fade_start(size_t index, int direction) {
+    if (index >= count_of(MOSFET_PINS)) return;
+    fade_target[index] = (direction > 0) ? 255 : 0;
+    fade_step[index] = direction;
+    fade_last_update[index] = time_us_32() / 1000;
+}
+
+// Call from main loop: updates all active fades
+static void fade_update(void) {
+    uint32_t now = time_us_32() / 1000;
+    for (size_t i = 0; i < count_of(MOSFET_PINS); ++i) {
+        if (fade_step[i] == 0) continue;
+        if (now - fade_last_update[i] < FADE_INTERVAL_MS) continue;
+        
+        fade_last_update[i] = now;
+        int next = fade_brightness[i] + fade_step[i] * 5;
+        
+        // Check if we've reached or passed the target
+        if ((fade_step[i] > 0 && next >= fade_target[i]) ||
+            (fade_step[i] < 0 && next <= fade_target[i])) {
+            next = fade_target[i];
+            fade_step[i] = 0;  // fade complete
+        }
+        
+        fade_brightness[i] = next;
+        pwm_set(i, (next * 100) / 255);
+    }
+}
+
+// Stop all fades and set to off
+static void fade_stop_all(void) {
+    for (size_t i = 0; i < count_of(MOSFET_PINS); ++i) {
+        fade_step[i] = 0;
+        fade_brightness[i] = 0;
+        pwm_set(i, 0);
+    }
+}
+
+// Switch pin back to plain GPIO output (disables PWM)
+static void gpio_mode(size_t index) {
+    uint pin = MOSFET_PINS[index];
+    uint slice = pwm_gpio_to_slice_num(pin);
+    pwm_set_enabled(slice, false);
+    gpio_set_function(pin, GPIO_FUNC_SIO);
+    gpio_set_dir(pin, GPIO_OUT);
+}
+
 static void all_off(void) {
     for (size_t index = 0; index < count_of(MOSFET_PINS); ++index) {
+        gpio_mode(index);  // ensure GPIO mode, not PWM
         gpio_put(MOSFET_PINS[index], false);
     }
 }
 
 static void pulse(size_t index, uint32_t duration_ms) {
     all_off();
+    gpio_mode(index);  // ensure GPIO mode
     gpio_put(MOSFET_PINS[index], true);
+    sleep_ms(duration_ms);
+    all_off();
+}
+
+// Pulse two channels simultaneously (for kick-sync)
+static void pulse_dual(size_t ch1, size_t ch2, uint32_t duration_ms) {
+    all_off();
+    gpio_mode(ch1);
+    gpio_mode(ch2);
+    gpio_put(MOSFET_PINS[ch1], true);
+    gpio_put(MOSFET_PINS[ch2], true);
     sleep_ms(duration_ms);
     all_off();
 }
@@ -83,8 +170,24 @@ static void execute_command(uint8_t command) {
     if (command == 0x00) {
         all_off();
         amp_shutdown();
+        fade_stop_all();
     } else if (command >= 0x01 && command <= 0x06) {
         pulse(command - 1, 500);
+    } else if (command >= 0x51 && command <= 0x56) {
+        // Fade IN: 0x50 + channel (1-6)
+        fade_start(command - 0x51, 1);
+    } else if (command >= 0x61 && command <= 0x66) {
+        // Fade OUT: 0x60 + channel (1-6)
+        fade_start(command - 0x61, -1);
+    } else if (command >= 0x71 && command <= 0x76) {
+        // Stop fade and turn off: 0x70 + channel (1-6)
+        size_t ch = command - 0x71;
+        fade_step[ch] = 0;
+        fade_brightness[ch] = 0;
+        pwm_set(ch, 0);
+    } else if (command == 0x07) {
+        // Dual pulse: AMOS1 + AMOS2 together, 100ms (for kick-sync)
+        pulse_dual(0, 1, 100);
     } else if (command == 0x10) {
         chase();
     } else if (command == 0x11) {
@@ -138,6 +241,9 @@ int main(void) {
     puts("DREAMMACHINE RP2350B SPI controller ready");
 
     while (true) {
+        // Update any active fades (non-blocking)
+        fade_update();
+        
         if (spi_is_readable(spi0)) {
             uint8_t command;
             spi_read_blocking(spi0, 0, &command, 1);

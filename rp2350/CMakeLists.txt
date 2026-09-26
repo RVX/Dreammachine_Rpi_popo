@@ -11,6 +11,7 @@ add_executable(dreammachine_rp2350
 )
 
 target_link_libraries(dreammachine_rp2350
+    hardware_pwm
     hardware_spi
     pico_stdlib
 )
