@@ -168,6 +168,19 @@ def handle(chat_id, text):
     elif cmd in ("boots", "reboots"):
         boots = run("journalctl --list-boots --no-pager 2>/dev/null | tail -5")
         reply(chat_id, f"<b>{HOSTNAME}</b> recent boots:\n<code>{boots}</code>")
+    elif cmd == "update":
+        reply(chat_id, "⏳ Pulling latest code...")
+        out = run("bash /home/sjc/dm_update.sh 2>&1", timeout=120)
+        icon = "✅" if out.startswith("UPDATE-OK") else "⚠️"
+        reply(chat_id, f"{icon} <b>{HOSTNAME}</b>: {out}")
+    elif cmd == "flash":
+        reply(chat_id, "⏳ Flashing RP2350 firmware... (LEDs will freeze ~10s)")
+        out = run("sudo openocd -f /home/sjc/dreammachine/rp2350/rpi4-rp2350-swd.cfg "
+                  "-c 'program /home/sjc/dreammachine/rp2350/build/dreammachine_rp2350.elf verify reset exit' 2>&1 "
+                  "| tail -3", timeout=120)
+        ok = "verified" in out.lower() or "Programming Finished" in out
+        icon = "✅" if ok else "⚠️"
+        reply(chat_id, f"{icon} <b>{HOSTNAME}</b> RP2350 flash:\n<code>{out[-300:]}</code>")
     elif cmd in ("errors", "logs"):
         errs = run("journalctl -b -p err --no-pager -n 8 -o cat 2>/dev/null")
         reply(chat_id, f"<b>{HOSTNAME}</b> errors since boot:\n<code>{errs or 'none'}</code>")
@@ -178,7 +191,9 @@ def handle(chat_id, text):
                        f"/uptime — uptime\n"
                        f"/ip — IP addresses\n"
                        f"/boots — recent boot history\n"
-                       f"/errors — kernel/service errors since boot")
+                       f"/errors — kernel/service errors since boot\n"
+                       f"/update — git pull + redeploy software\n"
+                       f"/flash — flash RP2350 firmware from repo")
     else:
         pass  # ignore unknown commands silently
 
