@@ -14,8 +14,8 @@ cd "$REPO_DIR" || { echo "UPDATE-FAIL: repo not found"; exit 1; }
 
 # --- 1. Git pull (software) ---
 BEFORE=$(git rev-parse --short HEAD 2>/dev/null || echo "none")
-if ! git pull --ff-only 2>&1 | tee /tmp/dm-pull.log; then
-    log "git pull FAILED"
+if ! git pull --ff-only >/tmp/dm-pull.log 2>&1; then
+    log "git pull FAILED: $(tail -1 /tmp/dm-pull.log)"
     echo "UPDATE-FAIL: git pull failed (diverged?)"
     exit 1
 fi

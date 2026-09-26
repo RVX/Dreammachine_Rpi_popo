@@ -171,8 +171,10 @@ def handle(chat_id, text):
     elif cmd == "update" or cmd == f"update{ALIAS}":
         reply(chat_id, "⏳ Pulling latest code...")
         out = run("bash /home/sjc/dm_update.sh 2>&1", timeout=120)
-        icon = "✅" if out.startswith("UPDATE-OK") else "⚠️"
-        reply(chat_id, f"{icon} <b>{HOSTNAME}</b>: {out}")
+        # result line is the last non-empty line (git prints noise before it)
+        result = [l for l in out.splitlines() if l.strip()][-1] if out.strip() else "no output"
+        icon = "✅" if "UPDATE-OK" in out else "⚠️"
+        reply(chat_id, f"{icon} <b>{HOSTNAME}</b>: {result}")
     elif cmd.startswith("update"):
         pass  # /updatedm2 etc. for other units — stay silent
     elif cmd == "flash" or cmd == f"flash{ALIAS}":
