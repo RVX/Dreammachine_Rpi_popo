@@ -65,19 +65,30 @@ ssh -i "$env:USERPROFILE\.ssh\id_ed25519_dreammachine" -o IdentitiesOnly=yes sjc
 - If the venue WiFi has a captive portal (browser login page), use the direct
   Ethernet link instead — that's what the `169.254.N.N` fallback is for.
 
-## Venue network isolation (verified at OMR, 2026-09-25)
+## Venue network isolation (verified at OMR, 2026-09-25/26)
 
 Many venue/visitor WiFi networks enable **AP/client isolation** — devices can
 reach the router and internet but **cannot reach each other**. Verified on
-OMR-VISITAS: Pi↔router ARP works, Pi↔laptop ARP fails, SSH between LAN devices
-blocked. The Pi's sshd listens on `0.0.0.0:22` (all interfaces) — the block is
-at the access point, not the Pi.
+OMR-VISITAS (guest network): Pi↔router ARP works, Pi↔laptop ARP fails, SSH
+between LAN devices blocked.
+
+**Solution**: Use the **equipment/staff network** instead of the guest network.
+At OMR, switching from `OMR-VISITAS` (guest) to `OMR-Equipo` (equipment) solved
+the isolation — the Pi and laptop can now communicate directly over WiFi.
 
 **Diagnose from the Pi** (via the Ethernet dongle link):
 ```bash
 ip neigh                      # laptop IP shows FAILED if isolation is on
 sudo arping -c 2 -I wlan0 <gateway>   # router answers, but...
 ping -c 2 <laptop-ip>         # ...laptop never replies
+```
+
+**Fix**: Add the equipment network to the Pi's network config:
+```bash
+sudo nmcli connection add type wifi ifname wlan0 con-name "OMR-Equipo" \
+  ssid "OMR-Equipo" wifi-sec.key-mgmt wpa-psk wifi-sec.psk "team23OMR"
+sudo nmcli connection up OMR-Equipo
+sudo nmcli connection delete OMR-VISITAS  # remove guest network
 ```
 
 ### Access methods by scenario
