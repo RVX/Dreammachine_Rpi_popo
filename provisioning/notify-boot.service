@@ -1,0 +1,14 @@
+[Unit]
+Description=DREAMMACHINE Boot Notification
+After=tailscaled.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/sjc/notify_boot.sh
+User=root
+StandardOutput=append:/var/log/dreammachine-notify.log
+StandardError=append:/var/log/dreammachine-notify.log
+
+[Install]
+WantedBy=multi-user.target

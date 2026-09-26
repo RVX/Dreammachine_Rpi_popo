@@ -27,5 +27,11 @@ tailscale up --authkey="$AUTH_KEY" --hostname="$HOSTNAME" --accept-routes
 log "Tailscale connected"
 tailscale ip -4
 
+# Send notification
+if [ -f /home/sjc/notify_join.sh ]; then
+    bash /home/sjc/notify_join.sh
+    log "Notification sent"
+fi
+
 # Optional: Enable Tailscale SSH (allows SSH without local SSH keys)
 # tailscale set --ssh

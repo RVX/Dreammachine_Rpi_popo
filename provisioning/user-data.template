@@ -114,7 +114,10 @@ write_files:
       
       # Log the Tailscale IP
       tailscale ip -4 > /home/sjc/.tailscale-ip
-      
+
+      # Send Telegram + email notification
+      python3 /home/sjc/notify.py || true
+
       # Cleanup
       systemctl disable dreammachine-tailscale.service || true
       rm -f /etc/systemd/system/dreammachine-tailscale.service
@@ -152,8 +155,96 @@ write_files:
       [Install]
       WantedBy=multi-user.target
 
+  - path: /home/sjc/notify.py
+    permissions: '0755'
+    owner: sjc:sjc
+    content: |
+      #!/usr/bin/env python3
+      """DREAMMACHINE notification - Telegram + email on boot/join"""
+      import subprocess, smtplib, urllib.request, urllib.parse
+      from email.mime.text import MIMEText
+      from email.mime.multipart import MIMEMultipart
+      from datetime import datetime, timezone
+
+      TELEGRAM_TOKEN = "8628742544:AAH80zdbP4OYtj0DSSDkUDj3Q9784K8cxXI"
+      TELEGRAM_CHAT_ID = "350553264"
+      EMAIL_TO = "sjcvolcano@gmail.com"
+      EMAIL_FROM = "sjcvolcano@gmail.com"
+      EMAIL_PASSWORD_FILE = "/home/sjc/.email_password"
+
+      def run(cmd):
+          try:
+              return subprocess.check_output(cmd, shell=True, stderr=subprocess.DEVNULL, timeout=5).decode().strip()
+          except Exception:
+              return "unknown"
+
+      hostname = run("hostname")
+      tailscale_ip = run("tailscale ip -4") or "not connected"
+      public_ip = run("curl -s --max-time 5 ifconfig.me") or "unknown"
+      uptime = run("uptime -p").replace("up ", "")
+      timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+      local_ip = run("ip -4 addr show wlan0 | grep -oP 'inet \\K[\\d.]+'") or "not connected"
+      wifi_ssid = run("nmcli -t -f NAME,DEVICE,STATE connection show --active | grep wlan0 | cut -d: -f1") or "unknown"
+      rustdesk_id = run("sudo -u sjc rustdesk --get-id") or "not installed"
+
+      # Telegram
+      tg_msg = (f"🟢 <b>DREAMMACHINE Unit Online</b>\n\n<b>Unit:</b> {hostname}\n<b>Tailscale IP:</b> {tailscale_ip}\n"
+                f"<b>Local Network:</b> {wifi_ssid} ({local_ip})\n<b>Public IP:</b> {public_ip}\n<b>Uptime:</b> {uptime}\n"
+                f"<b>Time:</b> {timestamp}\n\n<b>Access:</b>\nSSH: <code>ssh sjc@{tailscale_ip}</code>\n"
+                f"RustDesk ID: <code>{rustdesk_id}</code>")
+      try:
+          data = urllib.parse.urlencode({"chat_id": TELEGRAM_CHAT_ID, "text": tg_msg, "parse_mode": "HTML"}).encode()
+          urllib.request.urlopen(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", data, timeout=10)
+          tg = "OK"
+      except Exception:
+          tg = "FAIL"
+
+      # Email
+      try:
+          pw = open(EMAIL_PASSWORD_FILE).read().strip()
+          msg = MIMEMultipart("alternative")
+          msg["Subject"] = f"🟢 DREAMMACHINE {hostname} Online"
+          msg["From"] = EMAIL_FROM
+          msg["To"] = EMAIL_TO
+          msg.attach(MIMEText(f"Unit: {hostname}\nTailscale IP: {tailscale_ip}\nNetwork: {wifi_ssid} ({local_ip})\n"
+                              f"Public IP: {public_ip}\nUptime: {uptime}\nTime: {timestamp}\n\n"
+                              f"SSH: ssh sjc@{tailscale_ip}\nRustDesk ID: {rustdesk_id}", "plain"))
+          with smtplib.SMTP("smtp.gmail.com", 587, timeout=15) as s:
+              s.starttls()
+              s.login(EMAIL_FROM, pw)
+              s.sendmail(EMAIL_FROM, EMAIL_TO, msg.as_string())
+          em = "OK"
+      except Exception:
+          em = "FAIL"
+
+      with open("/home/sjc/notify.log", "a") as f:
+          f.write(f"{datetime.now()} Telegram={tg} Email={em}\n")
+
+  - path: /etc/systemd/system/notify-boot.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=DREAMMACHINE Boot Notification
+      After=tailscaled.service network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/bin/bash -c 'for i in $(seq 1 12); do tailscale ip -4 >/dev/null 2>&1 && break; sleep 5; done; python3 /home/sjc/notify.py'
+      User=root
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /home/sjc/.email_password
+    permissions: '0600'
+    owner: sjc:sjc
+    content: |
+      sxiterhlujuyrbtm
+
 runcmd:
   - [ systemctl, daemon-reload ]
   - [ systemctl, enable, dreammachine-firstboot.service ]
   - [ systemctl, enable, dreammachine-tailscale.service ]
+  - [ systemctl, enable, notify-boot.service ]
   - [ systemctl, enable, --now, ssh ]
