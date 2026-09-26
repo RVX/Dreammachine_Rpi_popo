@@ -87,6 +87,31 @@ write_files:
       systemctl daemon-reload
       exit 0
 
+  - path: /etc/X11/xorg.conf.d/10-noblank.conf
+    permissions: '0644'
+    content: |
+      Section "ServerFlags"
+          Option "BlankTime" "0"
+          Option "StandbyTime" "0"
+          Option "SuspendTime" "0"
+          Option "OffTime" "0"
+      EndSection
+
+      Section "Monitor"
+          Identifier "Monitor0"
+          Option "DPMS" "false"
+      EndSection
+
+  - path: /usr/local/bin/disable-console-blank.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # Disable console blanking in kernel cmdline (one-time)
+      CMDLINE=/boot/firmware/cmdline.txt
+      if ! grep -q "consoleblank=0" "$CMDLINE"; then
+          sed -i 's/ quiet splash/ quiet splash consoleblank=0/' "$CMDLINE"
+      fi
+
   - path: /usr/local/bin/dreammachine-tailscale.sh
     permissions: '0755'
     content: |
@@ -244,6 +269,7 @@ write_files:
 
 runcmd:
   - [ systemctl, daemon-reload ]
+  - [ bash, /usr/local/bin/disable-console-blank.sh ]
   - [ systemctl, enable, dreammachine-firstboot.service ]
   - [ systemctl, enable, dreammachine-tailscale.service ]
   - [ systemctl, enable, notify-boot.service ]
