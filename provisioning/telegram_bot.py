@@ -84,6 +84,10 @@ def collect_status():
     rustdesk_svc = run("systemctl is-active rustdesk") or "?"
     rustdesk_id = run("sudo -n -u sjc rustdesk --get-id", timeout=8) or "n/a"
 
+    # POPO sonification: last run time from log
+    popo_last = run("tail -1 /tmp/popo_live.log 2>/dev/null | grep -oP '\[done\].*' | head -c 80")
+    popo_wavs = run("ls /home/sjc/popo/datasets/ground/sonifications/popo_live_*.wav 2>/dev/null | wc -l") or "0"
+
     # hardware
     temp_raw = run("vcgencmd measure_temp | grep -oP '[0-9.]+'")
     temp = f"{temp_raw}C" if temp_raw else "?"
@@ -139,6 +143,7 @@ Tailscale: <code>{ts_ip}</code> | Public: {public_ip}
 <b>Software</b>
 LED: {led} | REAPER: {reaper}
 Tailscale: {ts_state} | RustDesk: {rustdesk_svc} (ID <code>{rustdesk_id}</code>)
+POPO: {popo_wavs} wavs {popo_last}
 
 <b>Hardware</b>
 CPU: {temp}{throttled_note} | load {load}
