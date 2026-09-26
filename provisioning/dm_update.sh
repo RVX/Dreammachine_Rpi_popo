@@ -44,6 +44,9 @@ for f in notify.py telegram_bot.py notify_boot.sh; do
     fi
 done
 
+# Always ensure scripts are executable (git on Windows loses +x bit)
+chmod +x systemd/start_reaper.sh rp2350/pattern.py 2>/dev/null || true
+
 # LED controller (runs from repo dir, just needs restart)
 if echo "$CHANGED" | grep -q "led/led_controller_spi.py"; then
     sudo systemctl restart dreammachine-led.service
