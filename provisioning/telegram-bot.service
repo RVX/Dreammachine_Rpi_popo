@@ -1,0 +1,15 @@
+[Unit]
+Description=DREAMMACHINE Telegram command bot
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sjc
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /home/sjc/telegram_bot.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
