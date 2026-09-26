@@ -64,3 +64,49 @@ ssh -i "$env:USERPROFILE\.ssh\id_ed25519_dreammachine" -o IdentitiesOnly=yes sjc
   and deletes its own systemd unit when finished.
 - If the venue WiFi has a captive portal (browser login page), use the direct
   Ethernet link instead — that's what the `169.254.N.N` fallback is for.
+
+## Venue network isolation (verified at OMR, 2026-09-25)
+
+Many venue/visitor WiFi networks enable **AP/client isolation** — devices can
+reach the router and internet but **cannot reach each other**. Verified on
+OMR-VISITAS: Pi↔router ARP works, Pi↔laptop ARP fails, SSH between LAN devices
+blocked. The Pi's sshd listens on `0.0.0.0:22` (all interfaces) — the block is
+at the access point, not the Pi.
+
+**Diagnose from the Pi** (via the Ethernet dongle link):
+```bash
+ip neigh                      # laptop IP shows FAILED if isolation is on
+sudo arping -c 2 -I wlan0 <gateway>   # router answers, but...
+ping -c 2 <laptop-ip>         # ...laptop never replies
+```
+
+### Access methods by scenario
+
+| Scenario | Method |
+|---|---|
+| On-site, venue LAN open | Direct via `sjcdm<N>.local` or DHCP IP |
+| On-site, venue LAN isolated | Ethernet dongle (`169.254.<N>.<N>`) or Pi hotspot |
+| Off-site, venue has internet | RustDesk relay or WireGuard/tunnel (below) |
+| Off-site, no internet | Not possible — venue must provide some internet |
+
+### Planned: Pi hotspot fallback (AP+STA concurrent mode)
+
+The Pi 4 WiFi chip supports simultaneous client + AP mode: `wlan0` stays on
+the venue WiFi for internet while a virtual AP interface (`wlan1`) broadcasts
+`DREAMMACHINE-<N>` for direct laptop access. Both share the radio channel, so
+throughput splits — fine for management. To be implemented; ask before
+enabling since it changes NetworkManager setup.
+
+### Planned: off-site access (pick one, TODO)
+
+- **WireGuard to a VPS (preferred)** — each Pi gets a fixed tunnel IP
+  (`10.0.0.N`), persistent, encrypted, self-controlled. SSH/RustDesk to the
+  tunnel IP from anywhere. Needs one ~€3-5/month VPS.
+- **sish** (github.com/antoniomika/sish) — open-source openport.io alternative;
+  pure SSH reverse tunnels, quickest to set up.
+- **rathole** / **frp** — Rust/Go tunnel daemons, more features, more config.
+- **RustDesk relay** — switch from direct-IP (`direct-server Y`) to relay mode
+  (`direct-server ''`) so connections work through NAT/isolation. For privacy
+  on collector sites, self-host the relay (hbbs/hbbr) on the same VPS.
+
+## Notes / caveats (cont.)
