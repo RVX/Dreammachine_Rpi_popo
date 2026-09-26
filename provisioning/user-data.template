@@ -255,7 +255,8 @@ write_files:
 
       [Service]
       Type=oneshot
-      ExecStart=/bin/bash -c 'for i in $(seq 1 12); do tailscale ip -4 >/dev/null 2>&1 && break; sleep 5; done; python3 /home/sjc/notify.py'
+      # Wait for real internet (DNS+route) — 'tailscale ip -4' succeeds even offline
+      ExecStart=/bin/bash -c 'for i in $(seq 1 36); do ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1 && getent hosts api.telegram.org >/dev/null 2>&1 && break; sleep 5; done; python3 /home/sjc/notify.py'
       User=root
 
       [Install]
