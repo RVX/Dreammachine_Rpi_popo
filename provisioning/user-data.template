@@ -17,7 +17,7 @@ apt:
     Acquire {
       Check-Date "false";
     };
-timezone: Europe/Madrid
+timezone: America/Mexico_City
 keyboard:
   model: pc105
   layout: "es"
@@ -185,11 +185,13 @@ write_files:
     owner: sjc:sjc
     content: |
       #!/usr/bin/env python3
-      """DREAMMACHINE notification - Telegram + email on boot/join"""
-      import subprocess, smtplib, urllib.request, urllib.parse
-      from email.mime.text import MIMEText
-      from email.mime.multipart import MIMEMultipart
+      """DREAMMACHINE notification - Telegram + email on boot/join.
+      First-boot embedded copy; keep in sync with provisioning/notify.py."""
+      import re, shutil, smtplib, subprocess, urllib.parse, urllib.request
       from datetime import datetime, timezone
+      from email.mime.multipart import MIMEMultipart
+      from email.mime.text import MIMEText
+      from zoneinfo import ZoneInfo
 
       TELEGRAM_TOKEN = "8628742544:AAH80zdbP4OYtj0DSSDkUDj3Q9784K8cxXI"
       TELEGRAM_CHAT_ID = "350553264"
@@ -197,47 +199,69 @@ write_files:
       EMAIL_FROM = "sjcvolcano@gmail.com"
       EMAIL_PASSWORD_FILE = "/home/sjc/.email_password"
 
-      def run(cmd):
+      def run(cmd, timeout=5):
           try:
-              return subprocess.check_output(cmd, shell=True, stderr=subprocess.DEVNULL, timeout=5).decode().strip()
+              return subprocess.check_output(cmd, shell=True, stderr=subprocess.DEVNULL,
+                                             timeout=timeout).decode().strip()
           except Exception:
-              return "unknown"
+              return ""
+
+      now_utc = datetime.now(timezone.utc)
+      now_local = now_utc.astimezone()
+      try:
+          now_berlin = now_utc.astimezone(ZoneInfo("Europe/Berlin"))
+      except Exception:
+          now_berlin = now_utc
 
       hostname = run("hostname")
       tailscale_ip = run("tailscale ip -4") or "not connected"
-      public_ip = run("curl -s --max-time 5 ifconfig.me") or "unknown"
+      public_ip = run("curl -4 -s --max-time 5 ifconfig.me") or "unknown"
       uptime = run("uptime -p").replace("up ", "")
-      timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
       local_ip = run("ip -4 addr show wlan0 | grep -oP 'inet \\K[\\d.]+'") or "not connected"
       wifi_ssid = run("nmcli -t -f NAME,DEVICE,STATE connection show --active | grep wlan0 | cut -d: -f1") or "unknown"
-      rustdesk_id = run("sudo -u sjc rustdesk --get-id") or "not installed"
-
-      # Telegram
-      tg_msg = (f"🟢 <b>DREAMMACHINE Unit Online</b>\n\n<b>Unit:</b> {hostname}\n<b>Tailscale IP:</b> {tailscale_ip}\n"
-                f"<b>Local Network:</b> {wifi_ssid} ({local_ip})\n<b>Public IP:</b> {public_ip}\n<b>Uptime:</b> {uptime}\n"
-                f"<b>Time:</b> {timestamp}\n\n<b>Access:</b>\nSSH: <code>ssh sjc@{tailscale_ip}</code>\n"
-                f"RustDesk ID: <code>{rustdesk_id}</code>")
+      signal_dbm = run("iwconfig wlan0 | grep -oP 'Signal level=\\K[-0-9]+ dBm'") or "?"
+      rustdesk_id = run("sudo -n -u sjc rustdesk --get-id", timeout=8) or "n/a"
+      led_svc = run("systemctl is-active dreammachine-led.service") or "unknown"
+      reaper = "running" if run("pgrep -x reaper") else "not running"
+      tailscaled = run("systemctl is-active tailscaled") or "unknown"
       try:
-          data = urllib.parse.urlencode({"chat_id": TELEGRAM_CHAT_ID, "text": tg_msg, "parse_mode": "HTML"}).encode()
+          temp = f"{int(run('cat /sys/class/thermal/thermal_zone0/temp0')) / 1000:.1f}C"
+      except Exception:
+          temp = "?"
+      try:
+          du = shutil.disk_usage("/")
+          disk = f"{du.used // 2**30}G/{du.total // 2**30}G ({du.used * 100 // du.total}%)"
+      except Exception:
+          disk = "?"
+
+      msg = (f"🟢 <b>DREAMMACHINE Online</b>\n\n<b>Unit:</b> {hostname}  (up {uptime})\n\n"
+             f"<b>Time</b>\nUTC: {now_utc.strftime('%Y-%m-%d %H:%M UTC')}\n"
+             f"Unit local: {now_local.strftime('%Y-%m-%d %H:%M %Z')}\n"
+             f"Berlin: {now_berlin.strftime('%H:%M %Z')}\n\n"
+             f"<b>Network</b>\nWiFi: {wifi_ssid} ({local_ip}, {signal_dbm})\n"
+             f"Tailscale: <code>{tailscale_ip}</code>\nPublic IP: {public_ip}\n\n"
+             f"<b>Status</b>\nLED service: {led_svc} | REAPER: {reaper} | Tailscale: {tailscaled}\n"
+             f"CPU temp: {temp} | Disk: {disk}\n\n"
+             f"<b>Access</b>\nSSH: <code>ssh sjc@{tailscale_ip}</code>\nRustDesk: <code>{rustdesk_id}</code>")
+
+      try:
+          data = urllib.parse.urlencode({"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML"}).encode()
           urllib.request.urlopen(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", data, timeout=10)
           tg = "OK"
       except Exception:
           tg = "FAIL"
 
-      # Email
       try:
           pw = open(EMAIL_PASSWORD_FILE).read().strip()
-          msg = MIMEMultipart("alternative")
-          msg["Subject"] = f"🟢 DREAMMACHINE {hostname} Online"
-          msg["From"] = EMAIL_FROM
-          msg["To"] = EMAIL_TO
-          msg.attach(MIMEText(f"Unit: {hostname}\nTailscale IP: {tailscale_ip}\nNetwork: {wifi_ssid} ({local_ip})\n"
-                              f"Public IP: {public_ip}\nUptime: {uptime}\nTime: {timestamp}\n\n"
-                              f"SSH: ssh sjc@{tailscale_ip}\nRustDesk ID: {rustdesk_id}", "plain"))
+          m = MIMEMultipart("alternative")
+          m["Subject"] = f"DREAMMACHINE {hostname} Online"
+          m["From"] = EMAIL_FROM
+          m["To"] = EMAIL_TO
+          m.attach(MIMEText(re.sub(r"</?(b|code)>", "", msg), "plain"))
           with smtplib.SMTP("smtp.gmail.com", 587, timeout=15) as s:
               s.starttls()
               s.login(EMAIL_FROM, pw)
-              s.sendmail(EMAIL_FROM, EMAIL_TO, msg.as_string())
+              s.sendmail(EMAIL_FROM, EMAIL_TO, m.as_string())
           em = "OK"
       except Exception:
           em = "FAIL"

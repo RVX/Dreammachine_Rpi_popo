@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """
 DREAMMACHINE notification script
-Sends Telegram + email when a Pi joins the Tailnet or boots
+Sends Telegram + email when a Pi joins the Tailnet or boots.
 """
 
-import subprocess
+import re
+import shutil
 import smtplib
-import urllib.request
+import subprocess
 import urllib.parse
-from email.mime.text import MIMEText
+import urllib.request
+from datetime import datetime, timezone
 from email.mime.multipart import MIMEMultipart
-from datetime import datetime
+from email.mime.text import MIMEText
+from zoneinfo import ZoneInfo
 
 # Configuration
 TELEGRAM_TOKEN = "8628742544:AAH80zdbP4OYtj0DSSDkUDj3Q9784K8cxXI"
@@ -19,146 +22,170 @@ EMAIL_TO = "sjcvolcano@gmail.com"
 EMAIL_FROM = "sjcvolcano@gmail.com"
 EMAIL_PASSWORD_FILE = "/home/sjc/.email_password"  # Gmail App Password stored here
 
-def run(cmd):
-    """Run shell command and return output"""
+
+def run(cmd, timeout=5):
+    """Run shell command and return output, or empty string on failure"""
     try:
-        return subprocess.check_output(cmd, shell=True, stderr=subprocess.DEVNULL, timeout=5).decode().strip()
-    except:
-        return "unknown"
+        return subprocess.check_output(
+            cmd, shell=True, stderr=subprocess.DEVNULL, timeout=timeout
+        ).decode().strip()
+    except Exception:
+        return ""
+
 
 def get_info():
     """Gather system information"""
+    now_utc = datetime.now(timezone.utc)
+    now_local = now_utc.astimezone()  # unit's configured timezone
+    try:
+        now_berlin = now_utc.astimezone(ZoneInfo("Europe/Berlin"))
+    except Exception:
+        now_berlin = now_utc
+
     hostname = run("hostname")
     tailscale_ip = run("tailscale ip -4") or "not connected"
-    public_ip = run("curl -s --max-time 5 ifconfig.me") or "unknown"
+    # Force IPv4 for the public IP (IPv6 is not actionable for support)
+    public_ip = run("curl -4 -s --max-time 5 ifconfig.me") or "unknown"
     uptime = run("uptime -p").replace("up ", "")
-    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
     local_ip = run("ip -4 addr show wlan0 | grep -oP 'inet \\K[\\d.]+'") or "not connected"
     wifi_ssid = run("nmcli -t -f NAME,DEVICE,STATE connection show --active | grep wlan0 | cut -d: -f1") or "unknown"
-    rustdesk_id = run("sudo -u sjc rustdesk --get-id") or "not installed"
-    
+    signal_dbm = run("iwconfig wlan0 | grep -oP 'Signal level=\\K[-0-9]+ dBm'") or "?"
+    rustdesk_id = run("sudo -n -u sjc rustdesk --get-id", timeout=8) or "n/a"
+
+    # Service / software health
+    led_svc = run("systemctl is-active dreammachine-led.service") or "unknown"
+    reaper = "running" if run("pgrep -x reaper") else "not running"
+    tailscaled = run("systemctl is-active tailscaled") or "unknown"
+
+    # Hardware health
+    try:
+        temp = f"{int(run('cat /sys/class/thermal/thermal_zone0/temp0')) / 1000:.1f}C"
+    except Exception:
+        temp = "?"
+    try:
+        du = shutil.disk_usage("/")
+        disk = f"{du.used // 2**30}G/{du.total // 2**30}G ({du.used * 100 // du.total}%)"
+    except Exception:
+        disk = "?"
+
     return {
         "hostname": hostname,
         "tailscale_ip": tailscale_ip,
         "public_ip": public_ip,
         "uptime": uptime,
-        "timestamp": timestamp,
+        "time_utc": now_utc.strftime("%Y-%m-%d %H:%M UTC"),
+        "time_local": now_local.strftime("%Y-%m-%d %H:%M %Z"),
+        "time_berlin": now_berlin.strftime("%H:%M %Z"),
         "local_ip": local_ip,
         "wifi_ssid": wifi_ssid,
+        "signal_dbm": signal_dbm,
         "rustdesk_id": rustdesk_id,
+        "led_svc": led_svc,
+        "reaper": reaper,
+        "tailscaled": tailscaled,
+        "temp": temp,
+        "disk": disk,
     }
 
-def send_telegram(info):
-    """Send Telegram notification"""
-    message = f"""🟢 <b>DREAMMACHINE Unit Online</b>
 
-<b>Unit:</b> {info['hostname']}
-<b>Tailscale IP:</b> {info['tailscale_ip']}
-<b>Local Network:</b> {info['wifi_ssid']} ({info['local_ip']})
-<b>Public IP:</b> {info['public_ip']}
-<b>Uptime:</b> {info['uptime']}
-<b>Time:</b> {info['timestamp']}
+def build_message(i):
+    """Notification text (Telegram HTML; also source for plain-text email)"""
+    return f"""🟢 <b>DREAMMACHINE Online</b>
 
-<b>Access:</b>
-SSH: <code>ssh sjc@{info['tailscale_ip']}</code>
-RustDesk ID: <code>{info['rustdesk_id']}</code>"""
-    
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    data = urllib.parse.urlencode({
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": message,
-        "parse_mode": "HTML"
-    }).encode()
-    
+<b>Unit:</b> {i['hostname']}  (up {i['uptime']})
+
+<b>Time</b>
+UTC: {i['time_utc']}
+Unit local: {i['time_local']}
+Berlin: {i['time_berlin']}
+
+<b>Network</b>
+WiFi: {i['wifi_ssid']} ({i['local_ip']}, {i['signal_dbm']})
+Tailscale: <code>{i['tailscale_ip']}</code>
+Public IP: {i['public_ip']}
+
+<b>Status</b>
+LED service: {i['led_svc']} | REAPER: {i['reaper']} | Tailscale: {i['tailscaled']}
+CPU temp: {i['temp']} | Disk: {i['disk']}
+
+<b>Access</b>
+SSH: <code>ssh sjc@{i['tailscale_ip']}</code>
+RustDesk: <code>{i['rustdesk_id']}</code>"""
+
+
+def send_telegram(msg):
     try:
-        urllib.request.urlopen(url, data, timeout=10)
+        data = urllib.parse.urlencode({
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": msg,
+            "parse_mode": "HTML",
+        }).encode()
+        urllib.request.urlopen(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            data, timeout=10,
+        )
         return True
     except Exception as e:
         print(f"Telegram failed: {e}")
         return False
 
-def send_email(info):
-    """Send email notification via Gmail SMTP"""
+
+def strip_html(text):
+    return re.sub(r"</?(b|code)>", "", text)
+
+
+def send_email(i, msg_html):
     try:
-        with open(EMAIL_PASSWORD_FILE, "r") as f:
-            password = f.read().strip()
+        pw = open(EMAIL_PASSWORD_FILE).read().strip()
     except FileNotFoundError:
         print(f"Email password file not found: {EMAIL_PASSWORD_FILE}")
         return False
-    
+
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"🟢 DREAMMACHINE {info['hostname']} Online"
+    msg["Subject"] = f"🟢 DREAMMACHINE {i['hostname']} Online"
     msg["From"] = EMAIL_FROM
     msg["To"] = EMAIL_TO
-    
-    text = f"""DREAMMACHINE Unit Online
+    msg.attach(MIMEText(strip_html(msg_html), "plain"))
 
-Unit: {info['hostname']}
-Tailscale IP: {info['tailscale_ip']}
-Local Network: {info['wifi_ssid']} ({info['local_ip']})
-Public IP: {info['public_ip']}
-Uptime: {info['uptime']}
-Time: {info['timestamp']}
-
-Access:
-SSH: ssh sjc@{info['tailscale_ip']}
-RustDesk ID: {info['rustdesk_id']}
-"""
-    
-    html = f"""<html><body style="font-family: monospace; background: #1a1a2e; color: #eee; padding: 20px;">
-<h2 style="color: #4CAF50;">🟢 DREAMMACHINE Unit Online</h2>
-<table style="border-collapse: collapse;">
-<tr><td style="padding: 5px; color: #888;">Unit:</td><td style="padding: 5px;"><b>{info['hostname']}</b></td></tr>
-<tr><td style="padding: 5px; color: #888;">Tailscale IP:</td><td style="padding: 5px;"><code>{info['tailscale_ip']}</code></td></tr>
-<tr><td style="padding: 5px; color: #888;">Local Network:</td><td style="padding: 5px;">{info['wifi_ssid']} ({info['local_ip']})</td></tr>
-<tr><td style="padding: 5px; color: #888;">Public IP:</td><td style="padding: 5px;">{info['public_ip']}</td></tr>
-<tr><td style="padding: 5px; color: #888;">Uptime:</td><td style="padding: 5px;">{info['uptime']}</td></tr>
-<tr><td style="padding: 5px; color: #888;">Time:</td><td style="padding: 5px;">{info['timestamp']}</td></tr>
-</table>
-<h3 style="color: #888;">Access:</h3>
-<p>SSH: <code style="background: #333; padding: 3px 8px;">ssh sjc@{info['tailscale_ip']}</code></p>
-<p>RustDesk ID: <code style="background: #333; padding: 3px 8px;">{info['rustdesk_id']}</code></p>
-</body></html>"""
-    
-    msg.attach(MIMEText(text, "plain"))
+    styled = msg_html.replace("<b>", '<b style="color:#4CAF50">')
+    styled = styled.replace("<code>", '<code style="background:#333;padding:1px 5px">')
+    html = (
+        '<html><body style="font-family:monospace;background:#1a1a2e;color:#eee;padding:20px">'
+        f'<pre style="font-size:14px;color:#eee">{styled}</pre></body></html>'
+    )
     msg.attach(MIMEText(html, "html"))
-    
-    try:
-        # Try port 587 with STARTTLS first (more reliable from datacenter IPs)
-        with smtplib.SMTP("smtp.gmail.com", 587, timeout=15) as server:
-            server.starttls()
-            server.login(EMAIL_FROM, password)
-            server.sendmail(EMAIL_FROM, EMAIL_TO, msg.as_string())
-        return True
-    except Exception as e:
-        print(f"Email 587 failed: {e}, trying 465...")
-        
-    try:
-        # Fallback to port 465 with SSL
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as server:
-            server.login(EMAIL_FROM, password)
-            server.sendmail(EMAIL_FROM, EMAIL_TO, msg.as_string())
-        return True
-    except Exception as e:
-        print(f"Email 465 also failed: {e}")
-        return False
+
+    for port, use_ssl in ((587, False), (465, True)):
+        try:
+            if use_ssl:
+                server = smtplib.SMTP_SSL("smtp.gmail.com", port, timeout=15)
+            else:
+                server = smtplib.SMTP("smtp.gmail.com", port, timeout=15)
+                server.starttls()
+            with server:
+                server.login(EMAIL_FROM, pw)
+                server.sendmail(EMAIL_FROM, EMAIL_TO, msg.as_string())
+            return True
+        except Exception as e:
+            print(f"Email port {port} failed: {e}")
+    return False
+
 
 def log(msg):
-    """Log to file"""
-    try:
-        with open("/var/log/dreammachine-notify.log", "a") as f:
-            f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} {msg}\n")
-    except PermissionError:
-        # Fall back to user log
-        with open("/home/sjc/notify.log", "a") as f:
-            f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} {msg}\n")
+    for path in ("/var/log/dreammachine-notify.log", "/home/sjc/notify.log"):
+        try:
+            with open(path, "a") as f:
+                f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} {msg}\n")
+            return
+        except PermissionError:
+            continue
+
 
 if __name__ == "__main__":
     info = get_info()
-    
-    telegram_ok = send_telegram(info)
-    email_ok = send_email(info)
-    
-    status = f"Telegram={'OK' if telegram_ok else 'FAIL'} Email={'OK' if email_ok else 'FAIL'}"
-    log(f"Notification for {info['hostname']}: {status}")
+    message = build_message(info)
+    tg = send_telegram(message)
+    em = send_email(info, message)
+    status = f"Notification for {info['hostname']}: Telegram={'OK' if tg else 'FAIL'} Email={'OK' if em else 'FAIL'}"
+    log(status)
     print(status)
