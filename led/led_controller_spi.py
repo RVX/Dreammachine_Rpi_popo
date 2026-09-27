@@ -63,15 +63,20 @@ SPI_SPEED = 500_000
 
 # Firmware commands
 CMD_ALL_OFF = 0x00
-CMD_FADE_IN_BASE = 0x50    # | channel (1-6)
-CMD_FADE_OUT_BASE = 0x60   # | channel
-CMD_STOP_FADE_BASE = 0x70  # | channel
+CMD_PULSE_BASE = 0x00        # | channel (1-6) = 0x01-0x06 pulse 500ms
+CMD_DUAL_PULSE = 0x07        # both AMOS1+2 100ms (kick sync)
+CMD_FADE_IN_BASE = 0x50      # | channel (1-6)
+CMD_FADE_OUT_BASE = 0x60     # | channel
+CMD_STOP_FADE_BASE = 0x70    # | channel
 
 # Timing
 FADE_DURATION_S = 1.0      # firmware fade time (~1 s)
-IDLE_PERIOD_S = 2.5        # ambient: start a new fade every N seconds
 PLAY_PERIOD_S = 0.6        # playing: faster pattern
 PLAY_MAX_ACTIVE = 4        # max channels simultaneously lit while playing
+
+# AMOS channels (GPIO33, GPIO34 on RP2350)
+AMOS1 = 1
+AMOS2 = 2
 
 # ------------------------------------------------------------------ SPI ----
 
@@ -143,18 +148,121 @@ class PatternEngine:
                 self._step_playing()
                 time.sleep(PLAY_PERIOD_S)
             else:
-                self._step_idle()
-                time.sleep(IDLE_PERIOD_S)
+                self._step_idle_sequence()
 
-    def _step_idle(self):
-        """Slow breathing: keep at most one channel fading at a time."""
-        if self._lit:
-            ch = self._lit.pop()
-            self.dev.fade_out(ch)
-        else:
-            ch = random.randint(1, NUM_CHANNELS)
-            self.dev.fade_in(ch)
-            self._lit.add(ch)
+    # ---- Idle choreography: varied patterns cycling on AMOS1+2 ----
+    # Each pattern is a generator that yields (action_fn, duration_s) steps.
+    # The engine runs through all steps, then moves to the next pattern.
+
+    def _pattern_fade_each(self):
+        """Slow fade in/out on each channel, one at a time."""
+        for ch in (AMOS1, AMOS2):
+            yield (lambda c=ch: self.dev.fade_in(c), FADE_DURATION_S + 1.0)
+            yield (lambda c=ch: self.dev.fade_out(c), FADE_DURATION_S + 1.5)
+
+    def _pattern_fade_both(self):
+        """Both channels fade in together, hold, fade out together."""
+        yield (lambda: (self.dev.fade_in(AMOS1), self.dev.fade_in(AMOS2)), FADE_DURATION_S + 2.0)
+        yield (lambda: (self.dev.fade_out(AMOS1), self.dev.fade_out(AMOS2)), FADE_DURATION_S + 2.0)
+
+    def _pattern_crossfade(self):
+        """AMOS1 fades in as AMOS2 fades out, then reverse."""
+        yield (lambda: (self.dev.fade_in(AMOS1), self.dev.fade_out(AMOS2)), FADE_DURATION_S + 1.0)
+        yield (lambda: (self.dev.fade_out(AMOS1), self.dev.fade_in(AMOS2)), FADE_DURATION_S + 1.0)
+
+    def _pattern_fast_blink(self):
+        """Rapid dual pulses (~5 Hz strobe) for 3 seconds."""
+        for _ in range(30):
+            yield (lambda: self.dev.send(CMD_DUAL_PULSE), 0.1)
+
+    def _pattern_pulse_train(self, hz, count):
+        """Alternating pulses at given frequency."""
+        interval = 1.0 / hz
+        for i in range(count):
+            ch = AMOS1 if i % 2 == 0 else AMOS2
+            yield (lambda c=ch: self.dev.send(CMD_PULSE_BASE | c), interval)
+
+    def _pattern_dual_pulse_slow(self):
+        """Dual pulses at 4 Hz."""
+        yield from self._pattern_pulse_train(4, 8)
+
+    def _pattern_dual_pulse_fast(self):
+        """Dual pulses at 8 Hz."""
+        yield from self._pattern_pulse_train(8, 16)
+
+    # ---- New aggressive patterns ----
+
+    def _pattern_strobe_burst(self):
+        """Ultra-fast strobe on both channels (~20 Hz) for 1.5s."""
+        for _ in range(30):
+            yield (lambda: self.dev.send(CMD_DUAL_PULSE), 0.05)
+
+    def _pattern_max_min_swing(self):
+        """Alternate max brightness both, then near-dark both. Hard contrast."""
+        for _ in range(4):
+            yield (lambda: (self.dev.fade_in(AMOS1), self.dev.fade_in(AMOS2)), 0.3)
+            yield (lambda: (self.dev.fade_out(AMOS1), self.dev.fade_out(AMOS2)), 0.3)
+
+    def _pattern_glitch(self):
+        """Random rapid-fire pulses on random channels — glitchy/static feel."""
+        for _ in range(40):
+            ch = random.choice([AMOS1, AMOS2, AMOS1, AMOS2])  # 50/50
+            delay = random.uniform(0.03, 0.15)
+            yield (lambda c=ch: self.dev.send(CMD_PULSE_BASE | c), delay)
+
+    def _pattern_sweep_up(self):
+        """Pulse rate accelerates from 1 Hz to 12 Hz."""
+        for hz in [1, 2, 3, 4, 5, 6, 8, 10, 12]:
+            yield from self._pattern_pulse_train(hz, max(2, int(hz * 0.3)))
+
+    def _pattern_sweep_down(self):
+        """Pulse rate decelerates from 12 Hz to 1 Hz."""
+        for hz in [12, 10, 8, 6, 4, 3, 2, 1]:
+            yield from self._pattern_pulse_train(hz, max(2, int(hz * 0.3)))
+
+    def _pattern_pingpong(self):
+        """Rapid alternating single pulses AMOS1-AMOS2 at 10 Hz."""
+        for i in range(40):
+            ch = AMOS1 if i % 2 == 0 else AMOS2
+            yield (lambda c=ch: self.dev.send(CMD_PULSE_BASE | c), 0.05)
+
+    def _pattern_long_dark_pulse(self):
+        """Long darkness, then single bright pulse. Ominous."""
+        yield (lambda: (self.dev.fade_out(AMOS1), self.dev.fade_out(AMOS2)), 3.0)
+        yield (lambda: self.dev.send(CMD_DUAL_PULSE), 0.5)
+        yield (lambda: (self.dev.fade_out(AMOS1), self.dev.fade_out(AMOS2)), 2.0)
+        yield (lambda: self.dev.send(CMD_DUAL_PULSE), 0.5)
+
+    def _pattern_breathe_fast(self):
+        """Fast shallow breathing — both channels, quick in/out."""
+        for _ in range(6):
+            yield (lambda: (self.dev.fade_in(AMOS1), self.dev.fade_in(AMOS2)), 0.5)
+            yield (lambda: (self.dev.fade_out(AMOS1), self.dev.fade_out(AMOS2)), 0.5)
+
+    def _step_idle_sequence(self):
+        """Cycle through all idle patterns — calm to aggressive and back."""
+        patterns = [
+            self._pattern_fade_each,          # calm breathing
+            self._pattern_crossfade,           # smooth swap
+            self._pattern_dual_pulse_slow,     # 4 Hz rhythm
+            self._pattern_breathe_fast,        # quick shallow
+            self._pattern_glitch,              # random static
+            self._pattern_sweep_up,            # 1→12 Hz acceleration
+            self._pattern_strobe_burst,        # 20 Hz burst
+            self._pattern_max_min_swing,       # hard contrast
+            self._pattern_pingpong,            # fast alternating
+            self._pattern_sweep_down,          # 12→1 Hz decel
+            self._pattern_fade_both,           # calm together
+            self._pattern_long_dark_pulse,     # ominous dark+hit
+        ]
+        for pattern_fn in patterns:
+            if self.playing or self._stop.is_set():
+                return
+            for action, duration in pattern_fn():
+                if self.playing or self._stop.is_set():
+                    return
+                action()
+                time.sleep(duration)
 
     def _step_playing(self):
         """Livelier: randomly toggle channels, cap simultaneous active ones."""
