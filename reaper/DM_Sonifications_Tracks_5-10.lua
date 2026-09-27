@@ -10,7 +10,7 @@
 local folder        = "/home/sjc/popo/datasets/ground/sonifications"
 local valid_exts    = {".wav"}
 local track_numbers = {4, 5, 6, 7, 8, 9} -- Tracks 5-10 (0-indexed)
-local fade_len      = 1.0
+local fade_len      = 10.0   -- Fade-in/out duration in seconds
 local gain_db       = 0.0
 local show_console  = true
 local min_gap       = 30.0    -- min seconds between items across tracks 5-10
@@ -108,6 +108,12 @@ local function replace_files_on_tracks(files)
     return
   end
   local loop_start, loop_end = reaper.GetSet_LoopTimeRange(false, false, 0, 0, false)
+  -- If no loop set or loop too short, use project length or default 20 min
+  if loop_end - loop_start < 60 then
+    loop_start = 0
+    loop_end = math.max(reaper.GetProjectLength(0), 1200)  -- 20 min default
+    log("[INFO] No loop set, using " .. string.format("%.0f", loop_end) .. "s timeline")
+  end
   local all_ranges = {}  -- track positions across ALL tracks to avoid stacking
   for i, track_num in ipairs(track_numbers) do
     local track = reaper.GetTrack(0, track_num)
@@ -124,8 +130,14 @@ local function replace_files_on_tracks(files)
             table.insert(all_ranges, {pos, pos + actual_len})
           end
         else
-          log("[WARN] Track " .. (track_num + 1) .. ": no gap found, placing at start")
-          insert_file_on_track(track, files[i], loop_start)
+          -- Even-spread fallback: divide timeline into equal slots per track index
+          local slot = (loop_end - loop_start) / #track_numbers
+          local spread_pos = loop_start + (i - 1) * slot + math.random() * slot * 0.3
+          log("[WARN] Track " .. (track_num + 1) .. ": no gap found, spread to " .. string.format("%.1fs", spread_pos))
+          local item, actual_len = insert_file_on_track(track, files[i], spread_pos)
+          if item then
+            table.insert(all_ranges, {spread_pos, spread_pos + actual_len})
+          end
         end
       else
         log("[WARN] Not enough files for track " .. (track_num + 1))

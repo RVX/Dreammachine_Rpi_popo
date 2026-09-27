@@ -14,7 +14,7 @@
 local folder           = "/home/sjc/popo/datasets/ground/sonifications"
 local valid_exts       = {".wav"}
 local num_tracks       = 4       -- tracks 1-4 (0-indexed 0-3)
-local fade_time        = 1.0
+local fade_time        = 10.0   -- Fade-in/out duration in seconds
 local gain_db          = 0.0
 local min_gap          = 60.0
 local project_min_time = 10.0
@@ -88,6 +88,12 @@ end
 
 local function reposition_all_tracks()
   local loop_start, loop_end = reaper.GetSet_LoopTimeRange(false, false, 0, 0, false)
+  -- If no loop set or loop too short, use project length or default 20 min
+  if loop_end - loop_start < 60 then
+    loop_start = 0
+    loop_end = math.max(reaper.GetProjectLength(0), 1200)  -- 20 min default
+    log("[INFO] No loop set, using " .. string.format("%.0f", loop_end) .. "s timeline")
+  end
   for t = 0, num_tracks - 1 do
     local track = reaper.GetTrack(0, t)
     if track then
