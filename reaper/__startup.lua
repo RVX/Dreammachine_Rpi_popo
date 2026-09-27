@@ -1,5 +1,5 @@
 -- __startup.lua — runs automatically when REAPER starts
--- Launches the DREAMMACHINE POPO sonification monitors
+-- Launches the DREAMMACHINE POPO sonification monitors and starts playback
 
 reaper.defer(function()
   -- AutoLoop tracks 1-4: loads 4 newest POPO wavs, repositions on each loop
@@ -9,4 +9,9 @@ end)
 reaper.defer(function()
   -- Sonifications tracks 5-10: replaces media with 6 newest POPO wavs per loop
   dofile(reaper.GetResourcePath() .. "/Scripts/DM_Sonifications_Tracks_5-10.lua")
+end)
+
+-- Auto-play: start transport after a short delay (let scripts load first)
+reaper.defer(function()
+  reaper.Main_OnCommand(1007, 0)  -- Transport: Play
 end)
