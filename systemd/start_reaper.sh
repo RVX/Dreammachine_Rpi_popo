@@ -21,6 +21,18 @@ python3 "${PATTERN}" amp-mute
 python3 "${PATTERN}" amp-shutdown
 sleep 8
 
+# Deploy Lua scripts to REAPER's Scripts dir (REAPER may wipe it on config reset)
+REAPER_SCRIPTS="/home/sjc/.config/REAPER/Scripts"
+mkdir -p "${REAPER_SCRIPTS}"
+for script in DM_Autoloop_Tracks_1-4.lua DM_Sonifications_Tracks_5-10.lua __startup.lua; do
+    if [ -f "${REPO_DIR}/reaper/${script}" ]; then
+        cp "${REPO_DIR}/reaper/${script}" "${REAPER_SCRIPTS}/"
+    fi
+done
+
+# Ensure ALSA audio config exists in reaper.ini (survives config wipes)
+bash "${REPO_DIR}/reaper/ensure_reaper_audio.sh"
+
 python3 "${PATTERN}" amp-start-muted
 /usr/local/bin/reaper "${REAPER_PROJECT_PATH}" &
 REAPER_PID=$!
