@@ -1,0 +1,13 @@
+[Unit]
+Description=DREAMMACHINE USB WiFi Config Watcher
+After=local-fs.target
+ConditionPathExists=!/home/sjc/.wifi_configured
+
+[Service]
+Type=simple
+ExecStart=/bin/bash /home/sjc/dreammachine/provisioning/usb_wifi_config.sh
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

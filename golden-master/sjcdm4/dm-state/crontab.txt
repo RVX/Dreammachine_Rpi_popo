@@ -1,0 +1,1 @@
+7 * * * * cd /home/sjc/popo && /usr/bin/python3 POPO_fdsnws_mounts_omr.py --stagger-minutes 40 >> /tmp/popo_live.log 2>&1

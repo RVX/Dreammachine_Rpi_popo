@@ -1,0 +1,4 @@
+@lxpanel-pi
+@pcmanfm-pi
+@xscreensaver -no-splash
+@/home/sjc/dreammachine/systemd/start_reaper.sh

@@ -1,0 +1,7 @@
+
+# --- DREAMMACHINE autostart ---
+# Wait for the desktop/audio stack to settle, then launch REAPER with the project.
+(
+  sleep 8
+  /usr/local/bin/reaper "/home/sjc/reaper-projects/Dreammachine_popo_01/Dreammachine_popo_01.RPP" &
+) &
