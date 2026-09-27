@@ -13,5 +13,3 @@ if state then
 	))
 	state:close()
 end
-
-reaper.ShowConsoleMsg("DREAMMACHINE: master output forced to centered mono\n")
