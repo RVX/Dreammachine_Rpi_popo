@@ -10,10 +10,11 @@
 local folder        = "/home/sjc/popo/datasets/ground/sonifications"
 local valid_exts    = {".wav"}
 local track_numbers = {4, 5, 6, 7, 8, 9} -- Tracks 5-10 (0-indexed)
-local insert_time   = 0.0
-local fade_len      = 0.05
-local gain_db       = 12.0
+local fade_len      = 1.0
+local gain_db       = 0.0
 local show_console  = true
+local min_gap       = 30.0    -- min seconds between items across tracks 5-10
+local project_min_time = 5.0  -- no items in first 5s
 
 local function log(msg)
   if show_console then reaper.ShowConsoleMsg(tostring(msg) .. "\n") end
@@ -60,24 +61,45 @@ local function clear_track(track)
   end
 end
 
-local function insert_file_on_track(track, file_path)
+local function insert_file_on_track(track, file_path, pos)
   local source = reaper.PCM_Source_CreateFromFile(file_path)
   if not source then
     log("[ERROR] Failed to load file: " .. file_path)
-    return
+    return nil, 0
   end
   local item = reaper.AddMediaItemToTrack(track)
   local take = reaper.AddTakeToMediaItem(item)
   reaper.SetMediaItemTake_Source(take, source)
   local length = reaper.GetMediaSourceLength(source)
-  reaper.SetMediaItemPosition(item, insert_time, false)
+  reaper.SetMediaItemPosition(item, pos, false)
   reaper.SetMediaItemLength(item, length, false)
   reaper.SetMediaItemInfo_Value(item, "D_FADEINLEN", fade_len)
   reaper.SetMediaItemInfo_Value(item, "D_FADEOUTLEN", fade_len)
   local gain = 10 ^ (gain_db / 20)
   reaper.SetMediaItemTakeInfo_Value(take, "D_VOL", gain)
   reaper.UpdateItemInProject(item)
-  log("[OK] Inserted: " .. file_path:match("[^/]+$") .. " (+" .. gain_db .. "dB)")
+  log("[OK] " .. file_path:match("[^/]+$") .. " at " .. string.format("%.1fs", pos))
+  return item, length
+end
+
+-- Find a random position that doesn't overlap with existing ranges
+local function find_gap_position(item_len, loop_start, loop_end, existing_ranges)
+  local tries = 0
+  while tries < 100 do
+    local avail = loop_end - math.max(loop_start, project_min_time) - item_len
+    if avail <= 0 then return nil end
+    local pos = math.max(loop_start, project_min_time) + math.random() * avail
+    local ok = true
+    for _, r in ipairs(existing_ranges) do
+      if pos < r[2] + min_gap and pos + item_len > r[1] - min_gap then
+        ok = false
+        break
+      end
+    end
+    if ok then return pos end
+    tries = tries + 1
+  end
+  return nil  -- give up after 100 tries
 end
 
 local function replace_files_on_tracks(files)
@@ -85,12 +107,26 @@ local function replace_files_on_tracks(files)
     log("[WARN] No sonification files found in: " .. folder)
     return
   end
+  local loop_start, loop_end = reaper.GetSet_LoopTimeRange(false, false, 0, 0, false)
+  local all_ranges = {}  -- track positions across ALL tracks to avoid stacking
   for i, track_num in ipairs(track_numbers) do
     local track = reaper.GetTrack(0, track_num)
     if track then
       clear_track(track)
       if files[i] then
-        insert_file_on_track(track, files[i])
+        -- peek at file length first
+        local src = reaper.PCM_Source_CreateFromFile(files[i])
+        local flen = src and reaper.GetMediaSourceLength(src) or 30
+        local pos = find_gap_position(flen, loop_start, loop_end, all_ranges)
+        if pos then
+          local item, actual_len = insert_file_on_track(track, files[i], pos)
+          if item then
+            table.insert(all_ranges, {pos, pos + actual_len})
+          end
+        else
+          log("[WARN] Track " .. (track_num + 1) .. ": no gap found, placing at start")
+          insert_file_on_track(track, files[i], loop_start)
+        end
       else
         log("[WARN] Not enough files for track " .. (track_num + 1))
       end
