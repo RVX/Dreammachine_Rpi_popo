@@ -171,6 +171,11 @@ def handle(chat_id, text):
     elif cmd in ("boots", "reboots"):
         boots = run("journalctl --list-boots --no-pager 2>/dev/null | tail -5")
         reply(chat_id, f"<b>{HOSTNAME}</b> recent boots:\n<code>{boots}</code>")
+    elif cmd == "fls" or cmd == f"fls{ALIAS}":
+        reply(chat_id, "Starting FLS 60-min stroboscopic protocol on AMOS1+2...")
+        # Send OSC /fls/start to the LED controller
+        fls_script = '/home/sjc/dreammachine/led/venv/bin/python3 -c "from pythonosc.udp_client import SimpleUDPClient; c=SimpleUDPClient(\"127.0.0.1\",9000); c.send_message(\"/fls/start\",1)"'
+        run(fls_script, timeout=10)
     elif cmd == "update" or cmd == f"update{ALIAS}":
         reply(chat_id, "⏳ Pulling latest code...")
         out = run("bash /home/sjc/dm_update.sh 2>&1", timeout=120)

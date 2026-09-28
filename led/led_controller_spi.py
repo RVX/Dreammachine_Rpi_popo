@@ -117,14 +117,105 @@ class RP2350:
 
 # ------------------------------------------------------------- patterns ----
 
+# ------------------------------------------------------- research protocol ---
+
+# FLS 60-minute stroboscopic protocol (from fls_60min_rp2350b.ino research).
+# AMOS1+2 (GPIO 33+34) fire in sync as one combined output for max intensity.
+# Pi sends CMD_DUAL_PULSE (on) + CMD_ALL_OFF (off) with precise timing to
+# control frequency and duty cycle. RP2350 executes each command instantly.
+
+from dataclasses import dataclass
+from typing import Generator, Tuple
+
+@dataclass
+class ProtocolStep:
+    duration_s: float    # seconds
+    start_freq: float    # Hz
+    end_freq: float      # Hz
+    start_duty: float    # 0.0-1.0
+    end_duty: float      # 0.0-1.0
+    oscillating: bool = False
+    osc_rate_hz: float = 0.0
+
+# 16-phase research protocol (60 min total, from the .ino reference)
+FLS_PROTOCOL = [
+    # Phase I: Induction (0-8 min)
+    ProtocolStep(240, 14.0, 10.0, 0.20, 0.30),           # ramp-in
+    ProtocolStep(240, 10.0, 10.0, 0.30, 0.30),           # alpha pure
+    # Phase II: Alternation (8-24 min)
+    ProtocolStep(180,  3.5,  3.5, 0.50, 0.50),           # theta hypnagogic
+    ProtocolStep(180,  3.5, 12.0, 0.50, 0.30),           # ascending sweep
+    ProtocolStep(240, 10.2, 10.2, 0.30, 0.30, True, 0.1), # alpha harmonic oscillation
+    ProtocolStep(180,  3.0,  3.0, 0.50, 0.50),           # theta deep / CVH
+    ProtocolStep(180, 15.0, 15.0, 0.25, 0.25),           # beta stimulation
+    # Phase III: Rhythmic variation (24-48 min)
+    ProtocolStep(240, 10.0, 10.0, 0.30, 0.30, True, 0.25), # fast alternation
+    ProtocolStep(240,  9.0,  9.0, 0.35, 0.35, True, 0.05), # floating alpha/theta sine
+    ProtocolStep(240,  3.2,  3.2, 0.50, 0.50),           # hypnagogic immersion 2
+    ProtocolStep(240, 10.0, 10.0, 0.20, 0.40),           # alpha bright, duty sweep
+    ProtocolStep(240, 16.0, 18.0, 0.20, 0.25),           # ramp to high beta
+    ProtocolStep(240,  9.5,  9.5, 0.30, 0.30),           # return to relaxed alpha
+    # Phase IV: Cooldown (48-60 min)
+    ProtocolStep(240,  8.0,  6.0, 0.35, 0.35),           # intermediate transition
+    ProtocolStep(240,  5.0,  2.0, 0.35, 0.20),           # gradual descent
+    ProtocolStep(240,  2.0,  0.2, 0.20, 0.00),           # shutdown to baseline
+]
+
+
+def fls_strobe(dev: RP2350, stop_event: threading.Event) -> None:
+    """Run the full 60-minute FLS protocol on AMOS1+2 in sync.
+    Sends CMD_DUAL_PULSE (on) + CMD_ALL_OFF (off) with precise timing
+    to achieve the research-specified frequency and duty cycle."""
+    import math
+
+    for step in FLS_PROTOCOL:
+        if stop_event.is_set():
+            return
+        step_start = time.monotonic()
+        while True:
+            elapsed = time.monotonic() - step_start
+            if elapsed >= step.duration_s or stop_event.is_set():
+                break
+            progress = elapsed / step.duration_s
+            freq = step.start_freq + (step.end_freq - step.start_freq) * progress
+            duty = step.start_duty + (step.end_duty - step.start_duty) * progress
+            if step.oscillating:
+                freq += 0.5 * math.sin(2 * math.pi * step.osc_rate_hz * elapsed)
+            if freq <= 0 or duty <= 0:
+                time.sleep(0.1)
+                continue
+            period = 1.0 / freq
+            on_time = period * duty
+            off_time = period - on_time
+            # Both channels ON (sync)
+            dev.send(CMD_DUAL_PULSE)
+            _precise_sleep(on_time, stop_event)
+            # Both channels OFF
+            dev.send(CMD_ALL_OFF)
+            _precise_sleep(off_time, stop_event)
+
+
+def _precise_sleep(seconds: float, stop_event: threading.Event) -> None:
+    """Sleep with early exit on stop event, sub-ms precision."""
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        if stop_event.is_set():
+            return
+        remaining = end - time.monotonic()
+        time.sleep(min(remaining, 0.001))
+
+
 class PatternEngine:
-    """Ambient/playing fade choreography on top of RP2350 fade commands."""
+    """Ambient/playing fade choreography + FLS research protocol on RP2350."""
 
     def __init__(self, dev: RP2350):
         self.dev = dev
         self.playing = False
+        self.fls_active = False  # True when running the 60-min FLS protocol
         self._stop = threading.Event()
+        self._fls_stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
+        self._fls_thread = None
         self._lit = set()  # channels currently fading in / lit
 
     def start(self):
@@ -132,19 +223,40 @@ class PatternEngine:
 
     def stop(self):
         self._stop.set()
+        self._fls_stop.set()
         self._thread.join(timeout=3)
+        if self._fls_thread and self._fls_thread.is_alive():
+            self._fls_thread.join(timeout=3)
 
     def set_playing(self, playing: bool):
         if playing != self.playing:
             self.playing = playing
-            # on transition, fade everything out and rebuild the pattern
             for ch in list(self._lit):
                 self.dev.fade_out(ch)
             self._lit.clear()
 
+    def start_fls(self):
+        """Start the 60-min FLS stroboscopic protocol (AMOS1+2 in sync)."""
+        self.stop_fls()
+        self.fls_active = True
+        self._fls_stop.clear()
+        self._fls_thread = threading.Thread(
+            target=fls_strobe, args=(self.dev, self._fls_stop), daemon=True)
+        self._fls_thread.start()
+
+    def stop_fls(self):
+        """Stop the FLS protocol and return to ambient mode."""
+        self.fls_active = False
+        self._fls_stop.set()
+        if self._fls_thread and self._fls_thread.is_alive():
+            self._fls_thread.join(timeout=3)
+
     def _run(self):
         while not self._stop.is_set():
-            if self.playing:
+            if self.fls_active:
+                # FLS protocol running in its own thread — just wait
+                time.sleep(0.5)
+            elif self.playing:
                 self._step_playing()
                 time.sleep(PLAY_PERIOD_S)
             else:
@@ -289,10 +401,17 @@ def make_dispatcher(engine: PatternEngine) -> Dispatcher:
     def on_stop(_addr, *_args):
         engine.set_playing(False)
 
+    def on_fls_start(_addr, *_args):
+        engine.start_fls()
+
+    def on_fls_stop(_addr, *_args):
+        engine.stop_fls()
+
     disp.map("/play", on_play)
     disp.map("/stop", on_stop)
-    # ReaOSC also sends /play with arg 1/0 on toggle in some configs
     disp.map("/pause", on_stop)
+    disp.map("/fls/start", on_fls_start)
+    disp.map("/fls/stop", on_fls_stop)
     return disp
 
 
