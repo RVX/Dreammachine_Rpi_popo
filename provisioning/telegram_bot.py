@@ -33,6 +33,12 @@ ALIAS = HOSTNAME.replace("sjc", "")
 
 POLL_TIMEOUT = 30          # long-poll seconds
 ERROR_BACKOFF_S = 10
+# Per-unit offset seed to avoid 409 Conflict when multiple units poll simultaneously
+# Extract unit number from hostname (sjcdm4 -> 4), default to 0
+import re as _re
+_UNIT_MATCH = _re.search(r'(\d+)$', HOSTNAME)
+UNIT_NUM = int(_UNIT_MATCH.group(1)) if _UNIT_MATCH else 0
+OFFSET_SEED = UNIT_NUM * 100000  # each unit starts polling from a different update_id range
 
 
 # ---------------------------------------------------------------- helpers --
@@ -231,11 +237,14 @@ def handle(chat_id, text):
 # ------------------------------------------------------------------ main ---
 
 def main():
-    print(f"telegram_bot: {HOSTNAME} (alias {ALIAS}) polling...", flush=True)
-    offset = 0
+    print(f"telegram_bot: {HOSTNAME} (alias {ALIAS}, unit {UNIT_NUM}) polling...", flush=True)
+    # Start from a per-unit offset to avoid 409 Conflict with other units
+    offset = OFFSET_SEED
+    consecutive_409s = 0
     while True:
         try:
             resp = api("getUpdates", offset=offset, timeout=POLL_TIMEOUT)
+            consecutive_409s = 0  # reset on success
             for upd in resp.get("result", []):
                 offset = upd["update_id"] + 1
                 msg = upd.get("message") or {}
@@ -245,6 +254,16 @@ def main():
                     continue
                 print(f"cmd from {chat.get('id')}: {text}", flush=True)
                 handle(chat["id"], text)
+        except urllib.error.HTTPError as e:
+            if e.code == 409:
+                consecutive_409s += 1
+                # Exponential backoff on 409 Conflict (another bot polling)
+                backoff = min(ERROR_BACKOFF_S * (2 ** min(consecutive_409s, 5)), 300)
+                print(f"poll 409 Conflict #{consecutive_409s}, backing off {backoff}s", flush=True)
+                time.sleep(backoff)
+            else:
+                print(f"poll HTTP error {e.code}: {e}", flush=True)
+                time.sleep(ERROR_BACKOFF_S)
         except Exception as e:
             print(f"poll error: {e}", flush=True)
             time.sleep(ERROR_BACKOFF_S)
