@@ -118,6 +118,8 @@ if [ -d "$GM" ]; then
     cp "$GM/reaper.ini" ~/.config/REAPER/
     cp "$GM/reaper-kb.ini" ~/.config/REAPER/
     cp "$GM/Scripts/DM_Autoloop_Tracks_1-4.lua" "$GM/Scripts/DM_Sonifications_Tracks_5-10.lua" "$GM/Scripts/__startup.lua" ~/.config/REAPER/Scripts/
+    cp "$GM/ensure_reaper_audio.sh" /home/sjc/dreammachine/reaper/
+    chmod +x /home/sjc/dreammachine/reaper/ensure_reaper_audio.sh
     log "Golden master deployed"
 fi
 
@@ -155,6 +157,10 @@ chmod +x ~/.config/lxsession/rpd-x/autostart
 chmod +x /home/sjc/dreammachine/systemd/start_reaper.sh
 chmod +x /home/sjc/dreammachine/rp2350/pattern.py
 chmod +x /home/sjc/dreammachine/reaper/ensure_reaper_audio.sh
+# Deploy display resolution fix for headless RustDesk
+echo sjcsjc | sudo -S cp provisioning/set-display-resolution.desktop /etc/xdg/autostart/ 2>/dev/null || true
+# Force HDMI hotplug for headless operation
+echo sjcsjc | sudo -S bash -c 'grep -q "video=HDMI" /boot/firmware/cmdline.txt || sed -i "s/ quiet splash/ quiet splash video=HDMI-A-1:1920x1080@60e/" /boot/firmware/cmdline.txt' 2>/dev/null || true
 
 # --- 14. POPO ---
 if [ ! -d /home/sjc/popo/.git ]; then

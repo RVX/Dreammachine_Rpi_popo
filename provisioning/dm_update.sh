@@ -47,6 +47,21 @@ done
 # Always ensure scripts are executable (git on Windows loses +x bit)
 chmod +x systemd/start_reaper.sh rp2350/pattern.py 2>/dev/null || true
 
+# REAPER scripts and support files
+if echo "$CHANGED" | grep -q "reaper/"; then
+    for f in reaper/ensure_reaper_audio.sh reaper/force_master_mono.lua reaper/__startup.lua reaper/DM_Autoloop_Tracks_1-4.lua reaper/DM_Sonifications_Tracks_5-10.lua; do
+        if [ -f "$f" ]; then
+            cp "$f" /home/sjc/.config/REAPER/Scripts/ 2>/dev/null || true
+        fi
+    done
+    if [ -f reaper/ensure_reaper_audio.sh ]; then
+        cp reaper/ensure_reaper_audio.sh /home/sjc/dreammachine/reaper/
+        chmod +x /home/sjc/dreammachine/reaper/ensure_reaper_audio.sh
+    fi
+    log "reaper files updated"
+    SUMMARY="$SUMMARY, reaper-updated"
+fi
+
 # LED controller (runs from repo dir, just needs restart)
 if echo "$CHANGED" | grep -q "led/led_controller_spi.py"; then
     sudo systemctl restart dreammachine-led.service
@@ -59,6 +74,7 @@ if echo "$CHANGED" | grep -q "rp2350/build/dreammachine_rp2350.elf"; then
     if [ "${FIRMWARE_AUTOUPDATE:-0}" = "1" ]; then
         log "RP2350 firmware changed, flashing..."
         if sudo openocd -f rp2350/rpi4-rp2350-swd.cfg \
+                -f target/rp2350.cfg \
                 -c "program rp2350/build/dreammachine_rp2350.elf verify reset exit" \
                 >> "$LOG" 2>&1; then
             log "RP2350 flash OK"

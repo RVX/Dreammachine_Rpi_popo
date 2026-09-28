@@ -188,6 +188,20 @@ static void execute_command(uint8_t command) {
     } else if (command == 0x07) {
         // Dual pulse: AMOS1 + AMOS2 together, 100ms (for kick-sync)
         pulse_dual(0, 1, 100);
+    } else if (command == 0x08) {
+        // Dual ON (non-blocking): AMOS1+AMOS2 held on until 0x09/0x00.
+        // Used by the Pi-side FLS stroboscopic protocol for precise
+        // frequency/duty-cycle timing (pulse_dual's fixed 100ms blocks).
+        fade_step[0] = 0; fade_brightness[0] = 0;
+        fade_step[1] = 0; fade_brightness[1] = 0;
+        gpio_mode(0);
+        gpio_mode(1);
+        gpio_put(MOSFET_PINS[0], true);
+        gpio_put(MOSFET_PINS[1], true);
+    } else if (command == 0x09) {
+        // Dual OFF (non-blocking): AMOS1+AMOS2 off
+        gpio_put(MOSFET_PINS[0], false);
+        gpio_put(MOSFET_PINS[1], false);
     } else if (command == 0x10) {
         chase();
     } else if (command == 0x11) {

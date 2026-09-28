@@ -64,12 +64,15 @@ flowchart TD
 
 ## Status
 
-| Unit | Hostname | Audio | REAPER + OSC | LED service | Autoboot |
-|---|---|---|---|---|---|
-| 1 (reference) | sjcdm1 | ✅ | 🔄 in progress | ✅ | ✅ |
-| 2-5 | TBD | ⬜ | ⬜ | ⬜ | ⬜ |
+| Unit | Hostname | Tailscale | RustDesk ID | Audio | REAPER + OSC | LED service | FLS protocol | Autoboot |
+|---|---|---|---|---|---|---|---|---|
+| 1 | sjcdm1 | 100.64.131.41 | 336347711 | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 2 | sjcdm2 | 100.114.177.74 | 336348152 | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 3 | sjcdm3 | 100.85.254.127 | 336348338 | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 4 (reference) | sjcdm4 | 100.103.58.47 | 336348023 | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 5 | sjcdm5 | 100.93.96.91 | 336347026 | ✅ | ✅ | ✅ | ✅ | ✅ |
 
-See [MIGRATION.md](MIGRATION.md) for the full fleet tracking table.
+All units provisioned with `provisioning/provision_unit.sh` v2. See [MIGRATION.md](MIGRATION.md) for cloning details.
 
 ## Hardware / OS
 
@@ -78,38 +81,54 @@ See [MIGRATION.md](MIGRATION.md) for the full fleet tracking table.
 | Board | Raspberry Pi 4 Model B Rev 1.5 |
 | OS | Raspberry Pi OS (Debian 13 "trixie"), 64-bit, desktop (X11/Openbox — see Troubleshooting) |
 | Sound shield | Custom PCM5102A (`hifiberry-dac` overlay, ALSA `snd_rpi_hifiberry_dac`) |
-| LED control | RP2350B GPIO33-38; Raspberry Pi control over SPI is the next integration step |
+| LED control | RP2350B GPIO33-38; SPI-driven from Pi |
+| Remote access | Tailscale (mesh VPN) + RustDesk (headless-capable) |
+| Notifications | Telegram bot + email on boot/join |
+| Remote commands | `/status` `/update` `/flash` `/fls` `/flsstop` via Telegram |
 
 **GPIO 18, 19, and 21 are reserved for PCM5102A I2S. GPIO16-20 are reserved
-for RP2350B SPI/IRQ, and GPIO0/1 are reserved for serial communication.** The
-existing `dreammachine-led.service` is legacy direct-GPIO code and must remain
-stopped with the custom shield until it is replaced by the RP2350 SPI client.
+for RP2350B SPI/IRQ, GPIO23/24 for SWD debug, and GPIO0/1 for serial.** The
+`dreammachine-led.service` runs `led/led_controller_spi.py` (OSC-driven,
+SPI-based) — the legacy direct-GPIO `led_controller.py` is deprecated.
 
 ## Network
 
-| Pi | Hostname | User | IP | SSH key |
-|---|---|---|---|---|
-| Unit 1 (reference) | sjcdm1 | sjc | 192.168.88.104 | `~/.ssh/id_ed25519_dreammachine` |
-| Unit 2-5 | TBD | sjc | TBD | same key, once installed |
+| Pi | Hostname | User | Tailscale IP | RustDesk ID | RustDesk PW |
+|---|---|---|---|---|---|
+| 1 | sjcdm1 | sjc | 100.64.131.41 | 336347711 | OMRdream1 |
+| 2 | sjcdm2 | sjc | 100.114.177.74 | 336348152 | OMRdream2 |
+| 3 | sjcdm3 | sjc | 100.85.254.127 | 336348338 | OMRdream3 |
+| 4 | sjcdm4 | sjc | 100.103.58.47 | 336348023 | OMRdream4 |
+| 5 | sjcdm5 | sjc | 100.93.96.91 | 336347026 | OMRdream5 |
 
 Password for `sjc` user: `sjcsjc` (only needed until the SSH key is installed).
+WiFi: OMR-Equipo (equipment network — OMR-VISITAS has AP isolation).
 
 SSH pattern (Windows PowerShell):
 ```powershell
 $env:PATH += ";C:\Windows\System32\OpenSSH"
-ssh -i "$env:USERPROFILE\.ssh\id_ed25519_dreammachine" -o IdentitiesOnly=yes -o StrictHostKeyChecking=no sjc@192.168.88.104
+ssh -i "$env:USERPROFILE\.ssh\id_ed25519_dreammachine" -o IdentitiesOnly=yes -o StrictHostKeyChecking=no sjc@<TAILSCALE_IP>
 ```
+
+**Headless RustDesk fix:** all units have `video=HDMI-A-1:1920x1080@60e` in
+`/boot/firmware/cmdline.txt` and `/etc/xdg/autostart/set-display-resolution.desktop`
+to force 1080p output even with no monitor attached. Without this, RustDesk shows
+"No Displays".
 
 ## Repo layout
 
 ```
 setup/            install scripts, run once per Pi (idempotent)
 config/           dreammachine.env — single source of config (pins, ports, paths)
-led/              led_controller.py — OSC-driven LED controller (systemd service)
-reaper/           placeholder project + OSC setup instructions
-systemd/          unit files installed on the Pi
+led/              led_controller_spi.py — OSC-driven LED controller (SPI to RP2350)
+reaper/           Lua autoloop scripts, startup, force_master_mono, ensure_reaper_audio
+systemd/          unit files installed on the Pi (start_reaper.sh with amp watchdog)
 tools/            utilities (speaker_test: speaker comparison/calibration signals)
-provisioning/     cloud-init templates for first-boot (RustDesk, SSH, mDNS, site network)
+provisioning/     cloud-init, provision_unit.sh v2, notify.py, telegram_bot.py,
+                  dm_update.sh, fls_trigger.py, spi_test.py, amp_test.py
+rp2350/           RP2350B firmware (main.c, CMakeLists, pattern.py test scripts)
+Dreammachine_LIGHTCODE/  FLS research protocol reference (fls_60min_rp2350b.ino)
+golden-master/    sjcdm4 state snapshot (reaper.ini, RPP, scripts, services)
 MIGRATION.md      steps to clone the working setup to Pi 2-5
 ```
 
@@ -127,6 +146,12 @@ Or run all at once: `bash setup/run_all.sh`
 Do not run `setup/03_led_service.sh` on the custom shield. It belongs to the
 older direct-GPIO design and will be replaced by the RP2350B SPI service.
 
+**One-shot provisioning** (recommended): use `provisioning/provision_unit.sh v2`
+on a fresh Pi. Requires /tmp assets: reaper.tar.xz, reaper_sws-aarch64.so,
+reaper_reapack-aarch64.so, rustdesk-aarch64.deb, dreammachine_rp2350.elf.
+Handles: packagekitd kill, REAPER nested path detection, rpd-x session force,
+RustDesk per-unit password, RPP reference fix, all autostart files.
+
 After `02_install_reaper.sh`, REAPER must be **launched once via VNC/HDMI** to
 create `reaper.ini`, then the audio device and OSC control surface are
 configured manually (see [reaper/OSC_SETUP.md](reaper/OSC_SETUP.md)) — this
@@ -140,6 +165,28 @@ Before applying 12 V, complete the mandatory control-net rework and staged
 
 RP2350B firmware flashing, the SPI pin map, command protocol, and pattern test
 are documented in [RP2350.md](RP2350.md).
+
+### RP2350 command set (single-byte SPI)
+
+| Byte | Action |
+| ---: | --- |
+| `0x00` | All MOSFETs off + amp shutdown + stop fades |
+| `0x01`-`0x06` | Pulse channel 1-6 for 500 ms (blocking) |
+| `0x07` | Dual pulse AMOS1+2, 100 ms (kick-sync, blocking) |
+| `0x08` | **AMOS1+2 held ON** (non-blocking, until 0x09/0x00) — FLS strobe |
+| `0x09` | **AMOS1+2 OFF** (non-blocking) — FLS strobe |
+| `0x10` | Chase pattern |
+| `0x11` | Bounce pattern |
+| `0x12` | Flash all 5x |
+| `0x20`-`0x23` | Amp control (shutdown / start-muted / unmute / mute) |
+| `0x51`-`0x56` | Fade IN channel 1-6 (0→100% over ~1 s, non-blocking) |
+| `0x61`-`0x66` | Fade OUT channel 1-6 (100→0% over ~1 s, non-blocking) |
+| `0x71`-`0x76` | Stop fade on channel 1-6 and turn off |
+
+**FLS protocol note:** `0x08`/`0x09` were added because `0x07` blocks the RP2350
+main loop for 100 ms, making Pi-side variable duty-cycle strobing impossible.
+The Pi now sends `0x08` (ON) + `0x09` (OFF) with microsecond-precision sleeps
+for the full 16-phase, 60-minute research protocol (0.2-18 Hz, 0-50% duty).
 
 ## REAPER extensions (SWS/S&M + ReaPack)
 
@@ -290,6 +337,33 @@ Openbox) instead, which avoids the problem entirely; REAPER's autostart is
 then configured via `~/.config/lxsession/rpd-x/autostart` +
 `systemd/start_reaper.sh` rather than a labwc autostart file.
 
+**RustDesk shows "No Displays" / black screen headless**: no monitor attached =
+X11 has no active outputs. Fix: `video=HDMI-A-1:1920x1080@60e` in
+`/boot/firmware/cmdline.txt` + `/etc/xdg/autostart/set-display-resolution.desktop`
+to force 1080p. Applied to all units.
+
+**REAPER playing but no sound from speakers**: TPA3118 amp may be stuck muted.
+The `start_reaper.sh` amp watchdog (every 30 s) should auto-recover. Manual
+override: `python3 provisioning/amp_test.py` (sends 0x21 start + 0x22 unmute).
+
+**FLS strobe not triggering**: verify `0x08`/`0x09` firmware commands are
+flashed (post-2026-09-27). Use `python3 provisioning/spi_test.py strobe` to
+test raw hardware. The Telegram `/fls` command uses `fls_trigger.py` (not
+inline `python3 -c`) to avoid shell quoting bugs.
+
+**OpenOCD "Unable to reset target" / "transport not selected"**: the flash
+command needs `-f target/rp2350.cfg` after the interface cfg. Fixed in
+`telegram_bot.py` and `dm_update.sh`.
+
+**SSH host keys missing after cloud-init**: run `sudo ssh-keygen -A && sudo
+systemctl restart ssh` on first boot. Recurring on all new units.
+
+**AP isolation on OMR-VISITAS**: use OMR-Equipo network instead. Guest network
+blocks Pi-to-Pi and Pi-to-Tailscale traffic.
+
+**dpkg lock by packagekitd**: killed automatically in `provision_unit.sh` v2
+before dpkg operations.
+
 ## Robustness measures
 
 - `dreammachine-led.service` runs as a systemd service with `Restart=always`.
@@ -299,6 +373,19 @@ then configured via `~/.config/lxsession/rpd-x/autostart` +
 - Pi boots straight to desktop (autologin, kiosk), REAPER autostarts and loads
   the project automatically — no keyboard/monitor needed on site.
 - Hardware watchdog enabled (see `setup/04_vnc_and_autostart.sh`).
+- **Amp watchdog**: `start_reaper.sh` spawns a background subshell that every
+  30 s verifies the DAC PCM device is still open; if closed unexpectedly, it
+  re-sends `amp-unmute`. Prevents silent audio after REAPER glitches.
+- **Screen blanking disabled**: `10-noblank.conf` for X11 + `consoleblank=0` in
+  cmdline.txt.
+- **SD corruption protection**: logrotate configured, `noatime` on ext4,
+  overlayfs documented in `provisioning/OVERLAY_PROTECTION.md` (pre-shipping).
+- **Boot notifications**: `provisioning/notify.py` sends Telegram + email with
+  hostname, Tailscale IP, WiFi status, service states, CPU temp, disk usage,
+  RustDesk ID. Waits for real internet (ping 8.8.8.8 + DNS resolve) up to 3 min.
+- **Remote update**: `/update` or `/updatedm<N>` on Telegram triggers
+  `dm_update.sh` — git pull, redeploy changed files, restart services, flash
+  RP2350 if .elf changed (gated on `FIRMWARE_AUTOUPDATE=1`).
 
 ## License
 
@@ -308,3 +395,32 @@ granted for reuse outside the project unless stated otherwise by the author.
 ## Credits
 
 Built for **DREAMMACHINE** by Víctor Mazón Gardoqui. 2026.
+
+---
+
+## Changelog — 2026-09-27/28 session
+
+### Added
+- FLS 60-minute stroboscopic protocol (16 phases, 0.2-18 Hz, 0-50% duty,
+  sinusoidal modulation, AMOS1+2 synced) via OSC `/fls/start` `/fls/stop`
+  and Telegram `/fls` `/flsstop`
+- RP2350 firmware commands `0x08`/`0x09` (non-blocking dual ON/OFF) for
+  precise Pi-side strobe timing
+- `provisioning/fls_trigger.py` — helper script for bot OSC triggers
+- `provisioning/spi_test.py` — raw SPI hardware test (pulse/strobe/on/off)
+- `provisioning/amp_test.py` — manual amp start/unmute for diagnostics
+- `provisioning/set-display-resolution.desktop` — force 1080p headless
+- Amp watchdog in `start_reaper.sh` (30 s interval, auto re-unmute)
+
+### Fixed
+- Telegram bot `/fls` shell quoting bug (inner double quotes truncated
+  `python3 -c` command; replaced with script file)
+- `_precise_sleep` ValueError on negative remaining time (race condition)
+- OpenOCD missing `-f target/rp2350.cfg` in `/flash` and `dm_update.sh`
+- Headless RustDesk "No Displays" (forced HDMI + autostart resolution)
+- `start_reaper.sh` executable bit lost on Windows git checkouts
+
+### Deployed to fleet
+- All 5 units: forced HDMI fix, updated `start_reaper.sh` watchdog
+- dm4 + dm5: full FLS firmware + bot + controller updates
+- dm1/2/3: pending next online (Tailscale unreachable at time of writing)

@@ -65,6 +65,8 @@ SPI_SPEED = 500_000
 CMD_ALL_OFF = 0x00
 CMD_PULSE_BASE = 0x00        # | channel (1-6) = 0x01-0x06 pulse 500ms
 CMD_DUAL_PULSE = 0x07        # both AMOS1+2 100ms (kick sync)
+CMD_DUAL_ON = 0x08           # AMOS1+2 held ON  (non-blocking, FLS strobe)
+CMD_DUAL_OFF = 0x09          # AMOS1+2 OFF      (non-blocking, FLS strobe)
 CMD_FADE_IN_BASE = 0x50      # | channel (1-6)
 CMD_FADE_OUT_BASE = 0x60     # | channel
 CMD_STOP_FADE_BASE = 0x70    # | channel
@@ -121,7 +123,7 @@ class RP2350:
 
 # FLS 60-minute stroboscopic protocol (from fls_60min_rp2350b.ino research).
 # AMOS1+2 (GPIO 33+34) fire in sync as one combined output for max intensity.
-# Pi sends CMD_DUAL_PULSE (on) + CMD_ALL_OFF (off) with precise timing to
+# Pi sends CMD_DUAL_ON / CMD_DUAL_OFF (non-blocking) with precise timing to
 # control frequency and duty cycle. RP2350 executes each command instantly.
 
 from dataclasses import dataclass
@@ -164,44 +166,49 @@ FLS_PROTOCOL = [
 
 def fls_strobe(dev: RP2350, stop_event: threading.Event) -> None:
     """Run the full 60-minute FLS protocol on AMOS1+2 in sync.
-    Sends CMD_DUAL_PULSE (on) + CMD_ALL_OFF (off) with precise timing
-    to achieve the research-specified frequency and duty cycle."""
+    Sends CMD_DUAL_ON / CMD_DUAL_OFF (non-blocking firmware commands) with
+    precise Pi-side timing to achieve the research-specified frequency and
+    duty cycle. (CMD_DUAL_PULSE is firmware-fixed at 100ms and blocks the
+    SPI command loop, so it cannot do variable duty cycles.)"""
     import math
 
-    for step in FLS_PROTOCOL:
-        if stop_event.is_set():
-            return
-        step_start = time.monotonic()
-        while True:
-            elapsed = time.monotonic() - step_start
-            if elapsed >= step.duration_s or stop_event.is_set():
-                break
-            progress = elapsed / step.duration_s
-            freq = step.start_freq + (step.end_freq - step.start_freq) * progress
-            duty = step.start_duty + (step.end_duty - step.start_duty) * progress
-            if step.oscillating:
-                freq += 0.5 * math.sin(2 * math.pi * step.osc_rate_hz * elapsed)
-            if freq <= 0 or duty <= 0:
-                time.sleep(0.1)
-                continue
-            period = 1.0 / freq
-            on_time = period * duty
-            off_time = period - on_time
-            # Both channels ON (sync)
-            dev.send(CMD_DUAL_PULSE)
-            _precise_sleep(on_time, stop_event)
-            # Both channels OFF
-            dev.send(CMD_ALL_OFF)
-            _precise_sleep(off_time, stop_event)
+    try:
+        for step in FLS_PROTOCOL:
+            if stop_event.is_set():
+                return
+            step_start = time.monotonic()
+            while True:
+                elapsed = time.monotonic() - step_start
+                if elapsed >= step.duration_s or stop_event.is_set():
+                    break
+                progress = elapsed / step.duration_s
+                freq = step.start_freq + (step.end_freq - step.start_freq) * progress
+                duty = step.start_duty + (step.end_duty - step.start_duty) * progress
+                if step.oscillating:
+                    freq += 0.5 * math.sin(2 * math.pi * step.osc_rate_hz * elapsed)
+                if freq <= 0 or duty <= 0:
+                    time.sleep(0.1)
+                    continue
+                period = 1.0 / freq
+                on_time = period * duty
+                off_time = period - on_time
+                # Both channels ON (sync)
+                dev.send(CMD_DUAL_ON)
+                _precise_sleep(on_time, stop_event)
+                # Both channels OFF
+                dev.send(CMD_DUAL_OFF)
+                _precise_sleep(off_time, stop_event)
+    finally:
+        dev.send(CMD_DUAL_OFF)
 
 
 def _precise_sleep(seconds: float, stop_event: threading.Event) -> None:
     """Sleep with early exit on stop event, sub-ms precision."""
     end = time.monotonic() + seconds
-    while time.monotonic() < end:
-        if stop_event.is_set():
-            return
+    while True:
         remaining = end - time.monotonic()
+        if remaining <= 0 or stop_event.is_set():
+            return
         time.sleep(min(remaining, 0.001))
 
 

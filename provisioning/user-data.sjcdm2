@@ -1,0 +1,301 @@
+﻿#cloud-config
+# DREAMMACHINE cloud-init user-data template for Raspberry Pi OS (Imager v2 format).
+# One file per unit: copy to user-data and set hostname sjcdm<N> before flashing.
+# First boot does: SSH + mDNS, RustDesk (fixed per-unit password OMRdream<N>,
+# direct-IP enabled), SSH login banner with hostname/IPs, avahi SSH advertisement.
+manage_resolv_conf: false
+
+hostname: sjcdm2          # <-- CHANGE per unit: sjcdm2, sjcdm3, sjcdm4, sjcdm5
+manage_etc_hosts: true
+packages:
+- avahi-daemon
+- curl
+- figlet
+apt:
+  preserve_sources_list: true
+  conf: |
+    Acquire {
+      Check-Date "false";
+    };
+timezone: America/Mexico_City
+keyboard:
+  model: pc105
+  layout: "es"
+user:
+  name: sjc
+  shell: /bin/bash
+  lock_passwd: false
+  # Set per-unit hashed password at image time (Raspberry Pi Imager does this,
+  # or generate with: openssl passwd -6). Default below is sjcsjc.
+  passwd: "$y$jB5$OpYBW/nQlQqP77rRgdIF0/$IXTSWS15uYoxRcDKol1pwuTnaxONXl045zDWSneUws/"
+  ssh_authorized_keys:
+    - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHtzs5WjIRKy5zZnc0z1GGvKBjFVIf1vCukw6QWqtX9G dreammachine-pi
+ssh_pwauth: true
+
+write_files:
+  - path: /usr/local/bin/dreammachine-firstboot.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # First-boot site configuration for DREAMMACHINE units.
+      # Installs + configures RustDesk with a fixed per-unit unattended password.
+      # Logs to /var/log/dreammachine-firstboot.log; self-removes when done.
+      exec > /var/log/dreammachine-firstboot.log 2>&1
+      set -x
+
+      HOSTNAME_SHORT=$(hostname)                      # e.g. sjcdm4
+      UNIT_NUM=${HOSTNAME_SHORT#sjcdm}                # -> 4
+      RUSTDESK_PASSWORD="OMRdream${UNIT_NUM}"         # -> OMRdream4
+
+      # --- RustDesk (aarch64, Debian 13 / trixie) ---
+      if ! dpkg -s rustdesk >/dev/null 2>&1; then
+        cd /tmp
+        if curl -fsSL -o rustdesk.deb https://github.com/rustdesk/rustdesk/releases/latest/download/rustdesk-1.4.4-aarch64-debian-13.deb; then
+          apt-get install -y ./rustdesk.deb
+        fi
+      fi
+      sudo -u sjc rustdesk --password "$RUSTDESK_PASSWORD" || true
+      sudo -u sjc rustdesk --option direct-server Y || true
+      sudo -u sjc rustdesk --option verification-method use-permanent-password || true
+      systemctl enable rustdesk || true
+
+      # --- SSH banner: show hostname + IPs + RustDesk password on every login ---
+      cat > /etc/profile.d/dreammachine-banner.sh <<'BANNER'
+      #!/bin/sh
+      echo ""
+      figlet -w 60 "  $(hostname)" 2>/dev/null || echo "=== $(hostname) ==="
+      echo "  IPs: $(hostname -I)"
+      echo "  RustDesk pwd: OMRdream${HOSTNAME#sjcdm}"
+      echo ""
+      BANNER
+      chmod +x /etc/profile.d/dreammachine-banner.sh
+
+      # --- Avahi service file so the Pi shows up in network browsers ---
+      cat > /etc/avahi/services/ssh.service <<'AVHI'
+      <?xml version="1.0" standalone="no"?>
+      <!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+      <service-group>
+        <name replace-wildcards="yes">%h</name>
+        <service><type>_ssh._tcp</type><port>22</port></service>
+        <service><type>_sftp-ssh._tcp</type><port>22</port></service>
+      </service-group>
+      AVHI
+
+      # One-shot cleanup.
+      systemctl disable dreammachine-firstboot.service || true
+      rm -f /etc/systemd/system/dreammachine-firstboot.service
+      systemctl daemon-reload
+      exit 0
+
+  - path: /etc/X11/xorg.conf.d/10-noblank.conf
+    permissions: '0644'
+    content: |
+      Section "ServerFlags"
+          Option "BlankTime" "0"
+          Option "StandbyTime" "0"
+          Option "SuspendTime" "0"
+          Option "OffTime" "0"
+      EndSection
+
+      Section "Monitor"
+          Identifier "Monitor0"
+          Option "DPMS" "false"
+      EndSection
+
+  - path: /usr/local/bin/disable-console-blank.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # Disable console blanking in kernel cmdline (one-time)
+      CMDLINE=/boot/firmware/cmdline.txt
+      if ! grep -q "consoleblank=0" "$CMDLINE"; then
+          sed -i 's/ quiet splash/ quiet splash consoleblank=0/' "$CMDLINE"
+      fi
+
+  - path: /usr/local/bin/dreammachine-tailscale.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # Join Tailscale after WiFi is configured
+      AUTH_KEY="tskey-auth-krgtTx2qEZ11CNTRL-FSuzLc4JU3GL7TdpEx3N3GwLfhjXzNBZ"
+      HOSTNAME=$(hostname)
+      
+      # Wait for internet (up to 2 minutes)
+      for i in {1..24}; do
+        if ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
+          break
+        fi
+        sleep 5
+      done
+      
+      # Skip if already joined
+      if tailscale status >/dev/null 2>&1; then
+        exit 0
+      fi
+      
+      # Install and join
+      curl -fsSL https://tailscale.com/install.sh | sh
+      tailscale up --authkey="$AUTH_KEY" --hostname="$HOSTNAME" --accept-routes
+      
+      # Log the Tailscale IP
+      tailscale ip -4 > /home/sjc/.tailscale-ip
+
+      # Send Telegram + email notification
+      python3 /home/sjc/notify.py || true
+
+      # Cleanup
+      systemctl disable dreammachine-tailscale.service || true
+      rm -f /etc/systemd/system/dreammachine-tailscale.service
+      systemctl daemon-reload
+
+  - path: /etc/systemd/system/dreammachine-tailscale.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=DREAMMACHINE Tailscale auto-join
+      After=network-online.target
+      Wants=network-online.target
+      
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/dreammachine-tailscale.sh
+      RemainAfterExit=no
+      
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /etc/systemd/system/dreammachine-firstboot.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=DREAMMACHINE first-boot site configuration
+      After=network-online.target graphical.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/dreammachine-firstboot.sh
+      RemainAfterExit=no
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /home/sjc/notify.py
+    permissions: '0755'
+    owner: sjc:sjc
+    content: |
+      #!/usr/bin/env python3
+      """DREAMMACHINE notification - Telegram + email on boot/join.
+      First-boot embedded copy; keep in sync with provisioning/notify.py."""
+      import re, shutil, smtplib, subprocess, urllib.parse, urllib.request
+      from datetime import datetime, timezone
+      from email.mime.multipart import MIMEMultipart
+      from email.mime.text import MIMEText
+      from zoneinfo import ZoneInfo
+
+      TELEGRAM_TOKEN = "8628742544:AAH80zdbP4OYtj0DSSDkUDj3Q9784K8cxXI"
+      TELEGRAM_CHAT_ID = "350553264"
+      EMAIL_TO = "sjcvolcano@gmail.com"
+      EMAIL_FROM = "sjcvolcano@gmail.com"
+      EMAIL_PASSWORD_FILE = "/home/sjc/.email_password"
+
+      def run(cmd, timeout=5):
+          try:
+              return subprocess.check_output(cmd, shell=True, stderr=subprocess.DEVNULL,
+                                             timeout=timeout).decode().strip()
+          except Exception:
+              return ""
+
+      now_utc = datetime.now(timezone.utc)
+      now_local = now_utc.astimezone()
+      try:
+          now_berlin = now_utc.astimezone(ZoneInfo("Europe/Berlin"))
+      except Exception:
+          now_berlin = now_utc
+
+      hostname = run("hostname")
+      tailscale_ip = run("tailscale ip -4") or "not connected"
+      public_ip = run("curl -4 -s --max-time 5 ifconfig.me") or "unknown"
+      uptime = run("uptime -p").replace("up ", "")
+      local_ip = run("ip -4 addr show wlan0 | grep -oP 'inet \\K[\\d.]+'") or "not connected"
+      wifi_ssid = run("nmcli -t -f NAME,DEVICE,STATE connection show --active | grep wlan0 | cut -d: -f1") or "unknown"
+      signal_dbm = run("iwconfig wlan0 | grep -oP 'Signal level=\\K[-0-9]+ dBm'") or "?"
+      rustdesk_id = run("sudo -n -u sjc rustdesk --get-id", timeout=8) or "n/a"
+      led_svc = run("systemctl is-active dreammachine-led.service") or "unknown"
+      reaper = "running" if run("pgrep -x reaper") else "not running"
+      tailscaled = run("systemctl is-active tailscaled") or "unknown"
+      try:
+          temp = f"{int(run('cat /sys/class/thermal/thermal_zone0/temp0')) / 1000:.1f}C"
+      except Exception:
+          temp = "?"
+      try:
+          du = shutil.disk_usage("/")
+          disk = f"{du.used // 2**30}G/{du.total // 2**30}G ({du.used * 100 // du.total}%)"
+      except Exception:
+          disk = "?"
+
+      msg = (f"ðŸŸ¢ <b>DREAMMACHINE Online</b>\n\n<b>Unit:</b> {hostname}  (up {uptime})\n\n"
+             f"<b>Time</b>\nUTC: {now_utc.strftime('%Y-%m-%d %H:%M UTC')}\n"
+             f"Unit local: {now_local.strftime('%Y-%m-%d %H:%M %Z')}\n"
+             f"Berlin: {now_berlin.strftime('%H:%M %Z')}\n\n"
+             f"<b>Network</b>\nWiFi: {wifi_ssid} ({local_ip}, {signal_dbm})\n"
+             f"Tailscale: <code>{tailscale_ip}</code>\nPublic IP: {public_ip}\n\n"
+             f"<b>Status</b>\nLED service: {led_svc} | REAPER: {reaper} | Tailscale: {tailscaled}\n"
+             f"CPU temp: {temp} | Disk: {disk}\n\n"
+             f"<b>Access</b>\nSSH: <code>ssh sjc@{tailscale_ip}</code>\nRustDesk: <code>{rustdesk_id}</code>")
+
+      try:
+          data = urllib.parse.urlencode({"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML"}).encode()
+          urllib.request.urlopen(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", data, timeout=10)
+          tg = "OK"
+      except Exception:
+          tg = "FAIL"
+
+      try:
+          pw = open(EMAIL_PASSWORD_FILE).read().strip()
+          m = MIMEMultipart("alternative")
+          m["Subject"] = f"DREAMMACHINE {hostname} Online"
+          m["From"] = EMAIL_FROM
+          m["To"] = EMAIL_TO
+          m.attach(MIMEText(re.sub(r"</?(b|code)>", "", msg), "plain"))
+          with smtplib.SMTP("smtp.gmail.com", 587, timeout=15) as s:
+              s.starttls()
+              s.login(EMAIL_FROM, pw)
+              s.sendmail(EMAIL_FROM, EMAIL_TO, m.as_string())
+          em = "OK"
+      except Exception:
+          em = "FAIL"
+
+      with open("/home/sjc/notify.log", "a") as f:
+          f.write(f"{datetime.now()} Telegram={tg} Email={em}\n")
+
+  - path: /etc/systemd/system/notify-boot.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=DREAMMACHINE Boot Notification
+      After=tailscaled.service network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      # Wait for real internet (DNS+route) â€” 'tailscale ip -4' succeeds even offline
+      ExecStart=/bin/bash -c 'for i in $(seq 1 36); do ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1 && getent hosts api.telegram.org >/dev/null 2>&1 && break; sleep 5; done; python3 /home/sjc/notify.py'
+      User=root
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /home/sjc/.email_password
+    permissions: '0600'
+    owner: sjc:sjc
+    content: |
+      sxiterhlujuyrbtm
+
+runcmd:
+  - [ systemctl, daemon-reload ]
+  - [ bash, /usr/local/bin/disable-console-blank.sh ]
+  - [ systemctl, enable, dreammachine-firstboot.service ]
+  - [ systemctl, enable, dreammachine-tailscale.service ]
+  - [ systemctl, enable, notify-boot.service ]
+  - [ systemctl, enable, --now, ssh ]

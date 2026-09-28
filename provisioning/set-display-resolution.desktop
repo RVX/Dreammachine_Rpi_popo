@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Set Display Resolution
+Comment=Force 1080p on HDMI-1 for headless RustDesk
+Exec=sh -c "sleep 2 && DISPLAY=:0 xrandr --output HDMI-1 --mode 1920x1080"
+X-GNOME-Autostart-enabled=true
+NoDisplay=true

@@ -172,10 +172,21 @@ def handle(chat_id, text):
         boots = run("journalctl --list-boots --no-pager 2>/dev/null | tail -5")
         reply(chat_id, f"<b>{HOSTNAME}</b> recent boots:\n<code>{boots}</code>")
     elif cmd == "fls" or cmd == f"fls{ALIAS}":
-        reply(chat_id, "Starting FLS 60-min stroboscopic protocol on AMOS1+2...")
-        # Send OSC /fls/start to the LED controller
-        fls_script = '/home/sjc/dreammachine/led/venv/bin/python3 -c "from pythonosc.udp_client import SimpleUDPClient; c=SimpleUDPClient(\"127.0.0.1\",9000); c.send_message(\"/fls/start\",1)"'
-        run(fls_script, timeout=10)
+        # Send OSC /fls/start to the LED controller via the helper script
+        # (avoids shell-quoting pitfalls of a python -c one-liner)
+        out = run("/home/sjc/dreammachine/led/venv/bin/python3 /home/sjc/fls_trigger.py start",
+                  timeout=10)
+        if "OSC-SENT" in out:
+            reply(chat_id, "⚡ FLS 60-min stroboscopic protocol STARTED on AMOS1+2 (in sync).")
+        else:
+            reply(chat_id, "⚠️ FLS trigger failed — LED controller not responding on OSC :9000")
+    elif cmd == "flsstop" or cmd == f"flsstop{ALIAS}":
+        out = run("/home/sjc/dreammachine/led/venv/bin/python3 /home/sjc/fls_trigger.py stop",
+                  timeout=10)
+        if "OSC-SENT" in out:
+            reply(chat_id, "⏹ FLS protocol stopped — back to ambient mode.")
+        else:
+            reply(chat_id, "⚠️ FLS stop failed — LED controller not responding on OSC :9000")
     elif cmd == "update" or cmd == f"update{ALIAS}":
         reply(chat_id, "⏳ Pulling latest code...")
         out = run("bash /home/sjc/dm_update.sh 2>&1", timeout=120)
@@ -188,6 +199,7 @@ def handle(chat_id, text):
     elif cmd == "flash" or cmd == f"flash{ALIAS}":
         reply(chat_id, "⏳ Flashing RP2350 firmware... (LEDs will freeze ~10s)")
         out = run("sudo openocd -f /home/sjc/dreammachine/rp2350/rpi4-rp2350-swd.cfg "
+                  "-f target/rp2350.cfg "
                   "-c 'program /home/sjc/dreammachine/rp2350/build/dreammachine_rp2350.elf verify reset exit' 2>&1 "
                   "| tail -3", timeout=120)
         ok = "verified" in out.lower() or "Programming Finished" in out

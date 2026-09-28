@@ -62,6 +62,8 @@ when the Pi's `spidev.xfer2([b1, b2])` toggles CS between bytes. Solution:
 | `0x00` | All MOSFETs off + amp shutdown + stop all fades |
 | `0x01`-`0x06` | Pulse channel 1-6 for 500 ms (blocking, GPIO mode) |
 | `0x07` | **Dual pulse AMOS1+AMOS2 together, 100 ms** (for kick-sync) |
+| `0x08` | **Dual ON AMOS1+AMOS2, non-blocking** (held until `0x09`/`0x00`; FLS strobe) |
+| `0x09` | **Dual OFF AMOS1+AMOS2, non-blocking** (FLS strobe) |
 | `0x10` | Chase pattern |
 | `0x11` | Bounce pattern |
 | `0x12` | Flash all 5x |

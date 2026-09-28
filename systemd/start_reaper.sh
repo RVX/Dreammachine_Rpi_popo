@@ -52,8 +52,24 @@ for _ in $(seq 1 40); do
 	if fuser -s "${PCM_DEVICE}" 2>/dev/null; then
 		/usr/local/bin/reaper -nonewinst "${REPO_DIR}/reaper/force_master_mono.lua"
 		python3 "${PATTERN}" amp-unmute
+
+		# Amp watchdog: verify DAC stays open and amp stays unmuted while REAPER runs.
+		# If REAPER crashes or the DAC closes, trap will shut down the amp safely.
+		(
+			while kill -0 "${REAPER_PID}" 2>/dev/null; do
+				sleep 30
+				if ! fuser -s "${PCM_DEVICE}" 2>/dev/null; then
+					echo "WATCHDOG: DAC closed unexpectedly, re-unmuting amp" >&2
+					python3 "${PATTERN}" amp-unmute >/dev/null 2>&1 || true
+				fi
+			done
+		) &
+		WATCHDOG_PID=$!
+
 		wait "${REAPER_PID}"
-		exit $?
+		EXIT_CODE=$?
+		kill "${WATCHDOG_PID}" 2>/dev/null || true
+		exit "${EXIT_CODE}"
 	fi
 	sleep 0.5
 done
