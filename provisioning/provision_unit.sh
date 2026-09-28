@@ -30,7 +30,7 @@ fail() { ERRORS="$ERRORS\n  - $1"; log "FAIL: $1"; }
 # Kill packagekit if holding dpkg lock
 pkill -f packagekitd 2>/dev/null || true
 
-# --- 1. Hostname + SSH key + autologin ---
+# --- 1. Hostname + SSH key + autologin + session ---
 log "Setting hostname to $HOSTNAME..."
 echo sjcsjc | sudo -S hostnamectl set-hostname "$HOSTNAME" 2>/dev/null || fail "hostname"
 echo sjcsjc | sudo -S sed -i "s/127.0.1.1.*/127.0.1.1\t$HOSTNAME/" /etc/hosts 2>/dev/null
@@ -38,8 +38,9 @@ mkdir -p ~/.ssh
 grep -q "dreammachine-pi" ~/.ssh/authorized_keys 2>/dev/null || echo "$SSH_KEY" >> ~/.ssh/authorized_keys
 chmod 700 ~/.ssh; chmod 600 ~/.ssh/authorized_keys
 echo sjcsjc | sudo -S systemctl enable ssh 2>/dev/null
-# Desktop autologin (no password prompt on boot)
+# Desktop autologin + force rpd-x (X11) session — labwc uses different autostart format
 echo sjcsjc | sudo -S raspi-config nonint do_boot_behaviour B4 2>/dev/null || fail "autologin"
+echo sjcsjc | sudo -S sed -i 's/^user-session=.*/user-session=rpd-x/; s/^autologin-session=.*/autologin-session=rpd-x/; s/^greeter-session=.*/greeter-session=pi-greeter-x/' /etc/lightdm/lightdm.conf 2>/dev/null || fail "session"
 
 # --- 2. Tailscale ---
 if ! tailscale ip -4 >/dev/null 2>&1; then
