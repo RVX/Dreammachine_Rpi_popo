@@ -4,22 +4,27 @@
 # Logs to /var/log/dreammachine-update.log; prints a summary line for the caller.
 
 set -u
+set -o pipefail
 REPO_DIR="/home/sjc/dreammachine"
 LOG="/var/log/dreammachine-update.log"
 SUMMARY=""
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $1" | sudo tee -a "$LOG" >/dev/null; }
 
-cd "$REPO_DIR" || { echo "UPDATE-FAIL: repo not found"; exit 1; }
+# Trap unexpected errors and report them
+trap 'echo "UPDATE-FAIL: line $LINENO exited with code $?"; log "TRAP: line $LINENO code $?"' ERR
+
+cd "$REPO_DIR" || { echo "UPDATE-FAIL: repo not found at $REPO_DIR"; exit 1; }
 
 # --- 1. Git pull (software) ---
 BEFORE=$(git rev-parse --short HEAD 2>/dev/null || echo "none")
 if ! git pull --ff-only >/tmp/dm-pull.log 2>&1; then
-    log "git pull FAILED: $(tail -1 /tmp/dm-pull.log)"
-    echo "UPDATE-FAIL: git pull failed (diverged?)"
+    PULL_ERR=$(tail -1 /tmp/dm-pull.log 2>/dev/null || echo "unknown")
+    log "git pull FAILED: $PULL_ERR"
+    echo "UPDATE-FAIL: git pull failed — $PULL_ERR"
     exit 1
 fi
-AFTER=$(git rev-parse --short HEAD)
+AFTER=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 
 if [ "$BEFORE" = "$AFTER" ]; then
     log "already up to date ($AFTER)"

@@ -189,10 +189,15 @@ def handle(chat_id, text):
             reply(chat_id, "⚠️ FLS stop failed — LED controller not responding on OSC :9000")
     elif cmd == "update" or cmd == f"update{ALIAS}":
         reply(chat_id, "⏳ Pulling latest code...")
-        out = run("bash /home/sjc/dm_update.sh 2>&1", timeout=120)
+        out = run("bash /home/sjc/dm_update.sh 2>&1 || echo 'SCRIPT-CRASHED'", timeout=120)
         # result line is the last non-empty line (git prints noise before it)
-        result = [l for l in out.splitlines() if l.strip()][-1] if out.strip() else "no output"
-        icon = "✅" if "UPDATE-OK" in out else "⚠️"
+        lines = [l for l in out.splitlines() if l.strip()]
+        if not lines:
+            result = "no output (script may have crashed silently)"
+            icon = "⚠️"
+        else:
+            result = lines[-1]
+            icon = "✅" if "UPDATE-OK" in out else "⚠️"
         reply(chat_id, f"{icon} <b>{HOSTNAME}</b>: {result}")
     elif cmd.startswith("update"):
         pass  # /updatedm2 etc. for other units — stay silent
