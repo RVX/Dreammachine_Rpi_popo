@@ -50,7 +50,14 @@ def get_info():
     local_ip = run("ip -4 addr show wlan0 | grep -oP 'inet \\K[\\d.]+'") or "not connected"
     wifi_ssid = run("nmcli -t -f NAME,DEVICE,STATE connection show --active | grep wlan0 | cut -d: -f1") or "unknown"
     signal_dbm = run("iwconfig wlan0 | grep -oP 'Signal level=\\K[-0-9]+ dBm'") or "?"
-    rustdesk_id = run("sudo -n -u sjc rustdesk --get-id", timeout=8) or "n/a"
+    # RustDesk may not be ready yet — retry for up to 15s
+    rustdesk_id = "n/a"
+    for _ in range(3):
+        rustdesk_id = run("sudo -n rustdesk --get-id", timeout=8)
+        if rustdesk_id and rustdesk_id != "n/a":
+            break
+        import time as _time; _time.sleep(5)
+    rustdesk_id = rustdesk_id or "n/a"
 
     # Service / software health
     led_svc = run("systemctl is-active dreammachine-led.service") or "unknown"
