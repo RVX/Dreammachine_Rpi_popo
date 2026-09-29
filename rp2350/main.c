@@ -155,15 +155,23 @@ static void amp_shutdown(void) {
 static void amp_start_muted(void) {
     gpio_put(AMP_MUTE_PIN, true);
     gpio_put(AMP_SDZ_PIN, true);
-    sleep_ms(20);
+    // TPA3118 datasheet wake time from shutdown can exceed a few ms under
+    // load/temperature; 20ms was too tight and left FAULTZ transiently low
+    // right when amp_unmute() ran its one-shot check, latching a false mute.
+    sleep_ms(60);
 }
 
 static void amp_unmute(void) {
-    if (gpio_get(AMP_SDZ_PIN) && gpio_get(AMP_FAULTZ_PIN)) {
-        gpio_put(AMP_MUTE_PIN, false);
-    } else {
-        puts("Amplifier remains muted: shutdown active or FAULTZ is low");
+    // Retry-poll instead of a single check: FAULTZ can still be settling
+    // after amp_start_muted(); give it up to 300ms before giving up.
+    for (int attempt = 0; attempt < 30; ++attempt) {
+        if (gpio_get(AMP_SDZ_PIN) && gpio_get(AMP_FAULTZ_PIN)) {
+            gpio_put(AMP_MUTE_PIN, false);
+            return;
+        }
+        sleep_ms(10);
     }
+    puts("Amplifier remains muted: shutdown active or FAULTZ still low after 300ms");
 }
 
 static void execute_command(uint8_t command) {

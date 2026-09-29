@@ -342,9 +342,18 @@ X11 has no active outputs. Fix: `video=HDMI-A-1:1920x1080@60e` in
 `/boot/firmware/cmdline.txt` + `/etc/xdg/autostart/set-display-resolution.desktop`
 to force 1080p. Applied to all units.
 
-**REAPER playing but no sound from speakers**: TPA3118 amp may be stuck muted.
-The `start_reaper.sh` amp watchdog (every 30 s) should auto-recover. Manual
-override: `python3 provisioning/amp_test.py` (sends 0x21 start + 0x22 unmute).
+**REAPER playing but no sound from speakers (recurring after reboot)**: root
+cause found 2026-09-29 — `amp_unmute()` in `rp2350/main.c` did a single
+one-shot check of `FAULTZ`/`SDZ` at the exact moment the `0x22` unmute command
+arrived. `amp_start_muted()` only waited 20 ms after raising `SDZ` before the
+Pi sent unmute, and the TPA3118 sometimes hadn't released `FAULTZ` yet in that
+window — the amp then latched muted permanently with no retry. Fixed by (a)
+increasing the post-`SDZ` settle time to 60 ms and (b) making `amp_unmute()`
+retry-poll `FAULTZ`/`SDZ` for up to 300 ms before giving up. Flashed to dm4,
+confirmed fixed. Needs reflashing on dm1/2/3/5 (see Changelog below). Manual
+override if it ever recurs: `python3 provisioning/amp_test.py` (sends 0x21
+start + 0x22 unmute). The `start_reaper.sh` amp watchdog (every 30 s) also
+auto re-sends unmute if the DAC PCM device closes unexpectedly.
 
 **FLS strobe not triggering**: verify `0x08`/`0x09` firmware commands are
 flashed (post-2026-09-27). Use `python3 provisioning/spi_test.py strobe` to
@@ -424,3 +433,25 @@ Built for **DREAMMACHINE** by Víctor Mazón Gardoqui. 2026.
 - All 5 units: forced HDMI fix, updated `start_reaper.sh` watchdog
 - dm4 + dm5: full FLS firmware + bot + controller updates
 - dm1/2/3: pending next online (Tailscale unreachable at time of writing)
+
+---
+
+## Changelog — 2026-09-29 session
+
+### Fixed
+- **Root-caused the recurring "no audio after reboot" bug**: `amp_unmute()`
+  in `rp2350/main.c` was a one-shot `FAULTZ`/`SDZ` check with no retry. If
+  `FAULTZ` was still transiently low when `0x22` arrived (TPA3118 hadn't
+  finished waking from shutdown — only 20 ms settle time was given), the amp
+  latched muted permanently until manually recovered. Confirmed NOT caused by
+  routing, 12 V rail, or speaker impedance (all verified good with multimeter
+  and REAPER UI meters) before tracing it to this firmware race.
+  - `amp_start_muted()`: settle time after raising `SDZ` increased 20 ms → 60 ms
+  - `amp_unmute()`: now retry-polls `FAULTZ`/`SDZ` every 10 ms for up to 300 ms
+    before giving up (was: single check, silent permanent mute on failure)
+- Rebuilt and reflashed RP2350 firmware on dm4, verified via full
+  `start_reaper.sh` restart cycle — amp unmuted cleanly, audio confirmed audible.
+
+### Deployed to fleet
+- dm4: firmware rebuilt + reflashed, verified working
+- dm1/2/3/5: pending reflash with same firmware fix
