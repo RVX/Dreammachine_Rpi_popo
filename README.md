@@ -454,4 +454,9 @@ Built for **DREAMMACHINE** by Víctor Mazón Gardoqui. 2026.
 
 ### Deployed to fleet
 - dm4: firmware rebuilt + reflashed, verified working
-- dm1/2/3/5: pending reflash with same firmware fix
+- dm1: `git pull` (was 25 commits behind) + firmware reflashed, verified working
+- dm2: firmware reflashed via prebuilt `.elf` (git pull skipped — unit has
+  local uncommitted `led_controller_spi.py` customizations left untouched),
+  verified working
+- dm3/dm5: unreachable at time of writing (offline / Tailscale down) —
+  pending reflash next time online
