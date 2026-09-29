@@ -165,7 +165,7 @@ FLS_PROTOCOL = [
 
 
 def fls_strobe(dev: RP2350, stop_event: threading.Event) -> None:
-    """Run the full 60-minute FLS protocol on AMOS1+2 in sync.
+    """Run the FLS protocol on AMOS1+2 in sync, looping forever.
     Sends CMD_DUAL_ON / CMD_DUAL_OFF (non-blocking firmware commands) with
     precise Pi-side timing to achieve the research-specified frequency and
     duty cycle. (CMD_DUAL_PULSE is firmware-fixed at 100ms and blocks the
@@ -173,31 +173,32 @@ def fls_strobe(dev: RP2350, stop_event: threading.Event) -> None:
     import math
 
     try:
-        for step in FLS_PROTOCOL:
-            if stop_event.is_set():
-                return
-            step_start = time.monotonic()
-            while True:
-                elapsed = time.monotonic() - step_start
-                if elapsed >= step.duration_s or stop_event.is_set():
-                    break
-                progress = elapsed / step.duration_s
-                freq = step.start_freq + (step.end_freq - step.start_freq) * progress
-                duty = step.start_duty + (step.end_duty - step.start_duty) * progress
-                if step.oscillating:
-                    freq += 0.5 * math.sin(2 * math.pi * step.osc_rate_hz * elapsed)
-                if freq <= 0 or duty <= 0:
-                    time.sleep(0.1)
-                    continue
-                period = 1.0 / freq
-                on_time = period * duty
-                off_time = period - on_time
-                # Both channels ON (sync)
-                dev.send(CMD_DUAL_ON)
-                _precise_sleep(on_time, stop_event)
-                # Both channels OFF
-                dev.send(CMD_DUAL_OFF)
-                _precise_sleep(off_time, stop_event)
+        while not stop_event.is_set():
+            for step in FLS_PROTOCOL:
+                if stop_event.is_set():
+                    return
+                step_start = time.monotonic()
+                while True:
+                    elapsed = time.monotonic() - step_start
+                    if elapsed >= step.duration_s or stop_event.is_set():
+                        break
+                    progress = elapsed / step.duration_s
+                    freq = step.start_freq + (step.end_freq - step.start_freq) * progress
+                    duty = step.start_duty + (step.end_duty - step.start_duty) * progress
+                    if step.oscillating:
+                        freq += 0.5 * math.sin(2 * math.pi * step.osc_rate_hz * elapsed)
+                    if freq <= 0 or duty <= 0:
+                        time.sleep(0.1)
+                        continue
+                    period = 1.0 / freq
+                    on_time = period * duty
+                    off_time = period - on_time
+                    # Both channels ON (sync)
+                    dev.send(CMD_DUAL_ON)
+                    _precise_sleep(on_time, stop_event)
+                    # Both channels OFF
+                    dev.send(CMD_DUAL_OFF)
+                    _precise_sleep(off_time, stop_event)
     finally:
         dev.send(CMD_DUAL_OFF)
 
@@ -437,6 +438,10 @@ def main():
     server = ThreadingOSCUDPServer((OSC_HOST, OSC_PORT), make_dispatcher(engine))
     print(f"led_controller_spi: OSC listening on {OSC_HOST}:{OSC_PORT}, "
           f"{NUM_CHANNELS} channels via SPI{SPI_BUS}.CS{SPI_CS}")
+
+    # FLS is the default mode: start automatically and loop forever
+    engine.start_fls()
+    print("led_controller_spi: FLS 60-min protocol started (default mode)")
 
     try:
         server.serve_forever()
