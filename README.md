@@ -454,7 +454,13 @@ Built for **DREAMMACHINE** by Víctor Mazón Gardoqui. 2026.
 
 ### Deployed to fleet
 - dm4: firmware rebuilt + reflashed, verified working
-- dm1: `git pull` (was 25 commits behind) + firmware reflashed, verified working
+- dm1: `git pull` (was 25 commits behind, later re-pulled to latest `main`)
+  + firmware reflashed. Also found missing the headless RustDesk fix (forced
+  HDMI + 1080p autostart) — applied and verified via full cold reboot:
+  1920x1080 confirmed, DAC RUNNING, REAPER autostarted, amp unmuted cleanly.
+  Note: unit went unreachable on WiFi/Tailscale/RustDesk mid-session (network
+  stack hang) — recovered via physical power cycle, root cause not yet
+  determined; worth monitoring for recurrence on field-deployed units.
 - dm2: firmware reflashed via prebuilt `.elf` (git pull skipped — unit has
   local uncommitted `led_controller_spi.py` customizations left untouched),
   verified working
