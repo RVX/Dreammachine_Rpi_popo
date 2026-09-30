@@ -91,6 +91,25 @@ sudo nmcli connection up OMR-Equipo
 sudo nmcli connection delete OMR-VISITAS  # remove guest network
 ```
 
+### Second saved network — OMR-WIFI-5G (added 2026-09-30)
+
+OMR IT reports `OMR-WIFI-5G` (same password `team23OMR`) as less congested/more
+stable than `OMR-Equipo` — likely the same AP hardware on a separate SSID/band
+(matching BSSID prefixes seen in a laptop scan). Added as a **second** saved
+network rather than a replacement, so units automatically prefer it when in
+range but still fall back to `OMR-Equipo` if it isn't — one less single point
+of failure for units that can't be reached to fix manually:
+```bash
+sudo nmcli connection add type wifi ifname wlan0 con-name "OMR-WIFI-5G" \
+  ssid "OMR-WIFI-5G" wifi-sec.key-mgmt wpa-psk wifi-sec.psk "team23OMR" \
+  connection.autoconnect yes connection.autoconnect-priority 10
+# Keep OMR-Equipo as automatic fallback (lower priority, not deleted):
+sudo nmcli connection modify "OMR-Equipo" connection.autoconnect-priority 0
+```
+Status: deployed to dm2 only so far. Still needed on dm1/dm3/dm4/dm5 next time
+each is reachable (note: dm2's profile name is `netplan-wlan0-OMR-Equipo`, not
+`OMR-Equipo` — check `nmcli connection show` per host before modifying).
+
 ### Access methods by scenario
 
 | Scenario | Method |
