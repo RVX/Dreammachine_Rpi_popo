@@ -53,15 +53,20 @@ for _ in $(seq 1 40); do
 		/usr/local/bin/reaper -nonewinst "${REPO_DIR}/reaper/force_master_mono.lua"
 		python3 "${PATTERN}" amp-unmute
 
-		# Amp watchdog: verify DAC stays open and amp stays unmuted while REAPER runs.
-		# If REAPER crashes or the DAC closes, trap will shut down the amp safely.
+		# Amp watchdog: unconditionally re-send amp-unmute every cycle, not just
+		# when the DAC closes. The RP2350's amp_unmute() only retry-polls FAULTZ
+		# for 300ms and then gives up permanently with no further attempts ever
+		# initiated from its side; if that single window is missed (observed in
+		# the field, not just on the bench), the DAC stays open the whole time
+		# and this watchdog would otherwise never fire again. 0x22 is a no-op
+		# when already unmuted, so resending it on a timer is always safe.
 		(
 			while kill -0 "${REAPER_PID}" 2>/dev/null; do
-				sleep 30
+				sleep 15
 				if ! fuser -s "${PCM_DEVICE}" 2>/dev/null; then
 					echo "WATCHDOG: DAC closed unexpectedly, re-unmuting amp" >&2
-					python3 "${PATTERN}" amp-unmute >/dev/null 2>&1 || true
 				fi
+				python3 "${PATTERN}" amp-unmute >/dev/null 2>&1 || true
 			done
 		) &
 		WATCHDOG_PID=$!
