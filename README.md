@@ -555,6 +555,15 @@ silently non-functional fleet-wide, plus lower-severity risks:
   rather than a blind fixed sleep) before either script starts counting
   failures. `wifi-portal.service` also now orders `After=NetworkManager.service`
   in addition to `network.target`.
+- **Validated on dm1 — real WiFi-only reboot, no ethernet fallback.**
+  Physically removed dm1's point-to-point ethernet dongle and did a full
+  shutdown/power-on. `eth0` came up `DOWN`/`NO-CARRIER` as expected;
+  `wifi-portal.service` and `network-watchdog.service` both settled within
+  ~4s of boot (WiFi reconnected almost immediately) with no spurious
+  hotspot; only `OMR-Equipo` showed as the active connection. REAPER, the
+  DAC, and the 1920x1080 resolution fix all survived the reboot intact.
+  This is the exact failure mode (no wired fallback, unattended field unit)
+  the whole feature exists for — first fully clean end-to-end confirmation.
 - **Known limitation, not a bug — recovery hotspot needs physical
   presence.** It only helps if someone is on-site with a phone/laptop to
   join `DARKLABYRINTH-<N>` and use the captive portal (or plug in a USB
