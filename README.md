@@ -583,3 +583,35 @@ silently non-functional fleet-wide, plus lower-severity risks:
   portal's DNS hijack is never removed after the hotspot tears down. Likely
   harmless (it only takes effect while NetworkManager's shared/AP mode is
   active) but not empirically verified on real hardware yet.
+
+### Telegram bot 409 Conflict (fleet commands randomly dropped)
+
+Reported as "the bot only replies when my phone is on the OMR-Equipo WiFi" —
+actually unrelated to the phone's network. Telegram's `getUpdates` long-poll
+allows only **one** consumer per bot token at a time. `telegram_bot_master.py`
+(the newer fleet-wide bot, meant to run only on sjcdm4 and dispatch commands
+to every unit over SSH) was correctly running there, but dm1, dm2, and dm3
+all still had the old per-unit `telegram-bot.service` (`telegram_bot.py`)
+active from before the master-bot architecture existed — all polling the
+same `TELEGRAM_TOKEN`. Whichever bot lost the race for a given update
+silently dropped it, producing intermittent, seemingly random command
+failures with no error visible to the user.
+
+- **Fixed** — stopped and disabled `telegram-bot.service` on dm1/dm2/dm3.
+  Only sjcdm4 should ever run a Telegram poller now.
+- **Fixed** — `telegram_bot_master.py` on dm4 was running as a bare
+  `nohup`-style background process with no systemd unit, so it would not
+  have survived dm4's next reboot. Added `provisioning/telegram-bot-master.service`
+  and switched dm4 over to it (`enable --now`).
+- **Fixed** — `provisioning/provision_unit.sh` and `provisioning/finish_sjcdm3.sh`
+  still installed/enabled the legacy per-unit bot on every new unit. Now
+  gated on `UNIT_NUM = 4`: only sjcdm4 gets `telegram_bot_master.py` +
+  `telegram-bot-master.service`; every other unit explicitly disables
+  `telegram-bot.service` instead, so re-provisioning a unit can't
+  reintroduce the conflict.
+- **Fixed** — `provisioning/dm_update.sh`'s file-sync step used to
+  redeploy `telegram_bot.py` and restart `telegram-bot.service` on *every*
+  unit whenever that file changed in git — which would have silently
+  re-enabled the conflicting bot on dm1/2/3 on the next `/update`. Now
+  checks `hostname` and only syncs/restarts the master bot on sjcdm4; on
+  all other units it explicitly disables `telegram-bot.service` again.

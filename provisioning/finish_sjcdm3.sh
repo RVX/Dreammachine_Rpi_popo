@@ -8,13 +8,16 @@ cp "$GM/Scripts/DM_Autoloop_Tracks_1-4.lua" "$GM/Scripts/DM_Sonifications_Tracks
 
 # Notifications
 cd /home/sjc/dreammachine
-cp provisioning/notify.py provisioning/telegram_bot.py provisioning/notify_boot.sh provisioning/dm_update.sh /home/sjc/
-chmod +x /home/sjc/notify.py /home/sjc/telegram_bot.py /home/sjc/notify_boot.sh /home/sjc/dm_update.sh
+cp provisioning/notify.py provisioning/notify_boot.sh provisioning/dm_update.sh /home/sjc/
+chmod +x /home/sjc/notify.py /home/sjc/notify_boot.sh /home/sjc/dm_update.sh
 echo -n "sxiterhlujuyrbtm" > /home/sjc/.email_password
 chmod 600 /home/sjc/.email_password
-echo sjcsjc | sudo -S cp provisioning/notify-boot.service provisioning/telegram-bot.service /etc/systemd/system/
+echo sjcsjc | sudo -S cp provisioning/notify-boot.service /etc/systemd/system/
 echo sjcsjc | sudo -S systemctl daemon-reload
-echo sjcsjc | sudo -S systemctl enable --now notify-boot.service telegram-bot.service
+echo sjcsjc | sudo -S systemctl enable --now notify-boot.service
+# sjcdm3 is not the fleet master — telegram_bot.py must stay disabled here,
+# it would 409-conflict with telegram_bot_master.py polling on sjcdm4.
+echo sjcsjc | sudo -S systemctl disable --now telegram-bot.service 2>/dev/null
 
 # LED service
 mkdir -p /home/sjc/dreammachine/led/venv

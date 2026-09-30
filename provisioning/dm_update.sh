@@ -38,8 +38,15 @@ SUMMARY="code $BEFORE->$AFTER"
 # --- 2. Sync deployed files that live outside the repo ---
 CHANGED=$(git diff --name-only "$BEFORE" "$AFTER")
 
-# notify/telegram bot live in /home/sjc
-for f in notify.py telegram_bot.py notify_boot.sh; do
+# notify lives in /home/sjc on every unit; telegram_bot_master.py only on
+# the fleet master (sjcdm4) — every other unit must NOT run a bot poller,
+# it would 409-conflict with the master's getUpdates long-poll.
+IS_MASTER=0
+[ "$(hostname)" = "sjcdm4" ] && IS_MASTER=1
+
+BOT_FILES="notify.py notify_boot.sh"
+[ "$IS_MASTER" = "1" ] && BOT_FILES="$BOT_FILES telegram_bot_master.py"
+for f in $BOT_FILES; do
     if echo "$CHANGED" | grep -q "provisioning/$f"; then
         sed -i 's/\r$//' "provisioning/$f"
         cp "provisioning/$f" "/home/sjc/$f"
@@ -48,6 +55,9 @@ for f in notify.py telegram_bot.py notify_boot.sh; do
         SUMMARY="$SUMMARY, $f"
     fi
 done
+if [ "$IS_MASTER" = "0" ]; then
+    sudo systemctl disable --now telegram-bot.service 2>/dev/null
+fi
 
 # Always ensure scripts are executable (git on Windows loses +x bit)
 chmod +x systemd/start_reaper.sh rp2350/pattern.py 2>/dev/null || true
@@ -95,10 +105,10 @@ if echo "$CHANGED" | grep -q "rp2350/build/dreammachine_rp2350.elf"; then
     fi
 fi
 
-# --- 4. Restart telegram bot if it changed ---
-if echo "$CHANGED" | grep -q "provisioning/telegram_bot.py"; then
-    sudo systemctl restart telegram-bot.service
-    log "restarted telegram-bot"
+# --- 4. Restart telegram bot if it changed (master only) ---
+if [ "$IS_MASTER" = "1" ] && echo "$CHANGED" | grep -q "provisioning/telegram_bot_master.py"; then
+    sudo systemctl restart telegram-bot-master.service
+    log "restarted telegram-bot-master"
 fi
 
 log "update complete: $SUMMARY"

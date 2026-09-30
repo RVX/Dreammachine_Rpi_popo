@@ -124,14 +124,29 @@ if [ -d "$GM" ]; then
 fi
 
 # --- 9. Notifications ---
-cp provisioning/notify.py provisioning/telegram_bot.py provisioning/notify_boot.sh provisioning/dm_update.sh /home/sjc/
-chmod +x /home/sjc/notify.py /home/sjc/telegram_bot.py /home/sjc/notify_boot.sh /home/sjc/dm_update.sh
+cp provisioning/notify.py provisioning/notify_boot.sh provisioning/dm_update.sh /home/sjc/
+chmod +x /home/sjc/notify.py /home/sjc/notify_boot.sh /home/sjc/dm_update.sh
 echo -n "$EMAIL_PASSWORD" > /home/sjc/.email_password
 chmod 600 /home/sjc/.email_password
-echo sjcsjc | sudo -S cp provisioning/notify-boot.service provisioning/telegram-bot.service /etc/systemd/system/
+echo sjcsjc | sudo -S cp provisioning/notify-boot.service /etc/systemd/system/
 echo sjcsjc | sudo -S cp provisioning/10-noblank.conf /etc/X11/xorg.conf.d/ 2>/dev/null
 echo sjcsjc | sudo -S systemctl daemon-reload
-echo sjcsjc | sudo -S systemctl enable --now notify-boot.service telegram-bot.service
+echo sjcsjc | sudo -S systemctl enable --now notify-boot.service
+# Telegram bot: only sjcdm4 runs one (the fleet master, dispatches to all
+# units over SSH). Every other unit must NOT run telegram_bot.py — a second
+# poller on the same bot token causes a 409 Conflict and randomly drops
+# fleet commands (see README troubleshooting).
+if [ "$UNIT_NUM" = "4" ]; then
+    cp provisioning/telegram_bot_master.py /home/sjc/
+    chmod +x /home/sjc/telegram_bot_master.py
+    echo sjcsjc | sudo -S cp provisioning/telegram-bot-master.service /etc/systemd/system/
+    echo sjcsjc | sudo -S systemctl daemon-reload
+    echo sjcsjc | sudo -S systemctl enable --now telegram-bot-master.service
+    log "Telegram fleet master bot enabled (sjcdm4)"
+else
+    echo sjcsjc | sudo -S systemctl disable --now telegram-bot.service 2>/dev/null
+    log "Telegram bot skipped (not master) — commands routed via sjcdm4"
+fi
 
 # --- 10. LED service ---
 mkdir -p /home/sjc/dreammachine/led/venv
