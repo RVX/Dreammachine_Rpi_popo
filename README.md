@@ -458,5 +458,10 @@ Built for **DREAMMACHINE** by Víctor Mazón Gardoqui. 2026.
 - dm2: firmware reflashed via prebuilt `.elf` (git pull skipped — unit has
   local uncommitted `led_controller_spi.py` customizations left untouched),
   verified working
-- dm3/dm5: unreachable at time of writing (offline / Tailscale down) —
-  pending reflash next time online
+- dm3: was on the very first provisioning commit (never updated since initial
+  imaging) — `git pull` (fast-forwarded ~90 commits), firmware reflashed,
+  headless RustDesk fix applied (forced HDMI + 1080p autostart), verified via
+  full cold reboot: 1920x1080 confirmed, DAC RUNNING, REAPER autostarted,
+  amp unmuted cleanly
+- dm5: unreachable at time of writing (offline / Tailscale down) — pending
+  reflash next time online
