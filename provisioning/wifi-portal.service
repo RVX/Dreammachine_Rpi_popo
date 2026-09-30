@@ -1,6 +1,7 @@
 [Unit]
 Description=DREAMMACHINE WiFi Setup Portal (hotspot + captive portal)
-After=network.target
+After=network.target NetworkManager.service
+Wants=NetworkManager.service
 
 [Service]
 Type=simple

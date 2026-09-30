@@ -37,6 +37,14 @@ log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') $1" | tee -a "$LOG"
 }
 
+log "Network watchdog started, waiting up to 60s for NetworkManager to settle"
+
+# Boot-settle: wait for NetworkManager to actually associate before we start
+# counting failures. Same rationale as wifi_portal.py — without this a slow
+# WPA handshake/DHCP lease on a normal boot could trigger NetworkManager
+# restarts (or worse, count toward a reboot) for no real reason.
+timeout 65 nm-online -q -t 60 || true
+
 has_connectivity() {
     ip route show default 2>/dev/null | grep -q default || return 1
     timeout 5 ping -c1 -W3 1.1.1.1 >/dev/null 2>&1 && return 0
@@ -48,7 +56,7 @@ hotspot_active() {
     timeout 5 nmcli -t -f NAME connection show --active 2>/dev/null | grep -qx "Hotspot"
 }
 
-log "Network watchdog started"
+log "Network watchdog settled, entering monitor loop"
 
 while true; do
     if has_connectivity; then

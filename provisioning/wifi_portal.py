@@ -393,6 +393,15 @@ def main():
     down for a sustained period, whether that's first-boot (no credentials
     yet), a relocation to a venue with different WiFi, or a mid-session drop.
     Runs forever — never a one-shot check."""
+    # Boot-settle: give NetworkManager a real chance to associate with a
+    # known network before we start counting failures. Without this, a
+    # slow WPA handshake/DHCP lease on a normal boot could spuriously open
+    # the recovery hotspot every single time the unit restarts. nm-online
+    # returns as soon as connectivity is up rather than a blind fixed wait.
+    log.info("Waiting up to 60s for NetworkManager to settle before monitoring")
+    subprocess.run(['nm-online', '-q', '-t', '60'], capture_output=True)
+    log.info("Settled, entering monitor loop")
+
     fail_count = 0
     while True:
         if check_wifi_configured():

@@ -544,6 +544,17 @@ silently non-functional fleet-wide, plus lower-severity risks:
   couldn't be unmounted/cleared (read-only or busy), the same config file
   would be reprocessed every 5 s indefinitely. Added a 60 s cooldown after
   any processing attempt, success or failure.
+- **Fixed (2nd audit pass) — no boot-settle grace period.** Both services
+  started checking connectivity immediately at boot (`After=network.target`
+  only fires before NetworkManager has actually associated with WiFi). A
+  slow WPA handshake/DHCP lease on an ordinary boot could have spuriously
+  opened the recovery hotspot, or counted toward a NetworkManager restart,
+  on every single reboot — caught specifically because a real reboot test
+  (dongle removed, WiFi-only) was about to happen. Fixed by waiting on
+  `nm-online -q -t 60` (returns as soon as NetworkManager reports online,
+  rather than a blind fixed sleep) before either script starts counting
+  failures. `wifi-portal.service` also now orders `After=NetworkManager.service`
+  in addition to `network.target`.
 - **Known limitation, not a bug — recovery hotspot needs physical
   presence.** It only helps if someone is on-site with a phone/laptop to
   join `DARKLABYRINTH-<N>` and use the captive portal (or plug in a USB
