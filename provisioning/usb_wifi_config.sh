@@ -51,6 +51,9 @@ while true; do
             else
                 log "ERROR: Invalid config file format. Expected: SSID=name and PASSWORD=pass"
             fi
+            # Cooldown regardless of outcome — if rm/umount failed (read-only
+            # or busy drive) this stops us from hammering nmcli every 5s forever
+            sleep 60
         fi
     done
     

@@ -501,3 +501,65 @@ mid-session drop, and not on a relocation to a venue with different WiFi.
 - Deployed and verified active on dm1 (git pull + manual systemd install,
   since `install_wifi_setup.sh`'s `cp` step is a no-op when run from the
   live deploy clone — same directory as source and destination).
+
+#### Post-deploy audit — bugs found and fixed before fleet rollout
+
+Before treating dm4 as the reference/golden-master for this feature, a
+careful audit turned up two bugs that would have made the hotspot recovery
+silently non-functional fleet-wide, plus lower-severity risks:
+
+- **Fixed — `check_wifi_configured()` was self-defeating.** NetworkManager
+  reports `wlan0` as "connected" whether it's connected to a real network
+  *or* actively running as the recovery hotspot (AP mode also counts as
+  "connected"). The original check couldn't tell the difference, so the
+  instant `run_portal()` started the hotspot, its own exit condition
+  (`while not check_wifi_configured()`) would immediately become true and
+  tear the hotspot back down within a fraction of a second — the portal
+  would flash on and vanish before anyone could ever connect to it. Fixed
+  by also checking `GENERAL.CONNECTION` and excluding the `Hotspot` profile.
+- **Fixed — the watchdog and the portal fought each other.** Once the
+  hotspot correctly stays up, `network_watchdog.sh`'s connectivity check
+  still fails (the AP has no internet uplink), so at ~2 min it would
+  restart NetworkManager — killing the hotspot mid-session, possibly
+  disconnecting someone actively filling in the WiFi form — and at ~10 min
+  it would reboot, destroying it entirely. Fixed by having the watchdog
+  detect an active `Hotspot` connection and defer escalation for a grace
+  period (`HOTSPOT_GRACE_SECONDS`, ~8 min). Deliberately **not** an
+  indefinite pause: a hung network stack (dm1/dm4's actual failure today —
+  credentials were already correct, NetworkManager just hung) looks
+  identical to "no known network" from the portal's point of view, so if
+  the watchdog deferred forever, a hung-stack incident would leave the
+  hotspot open with nobody able to fix it, permanently blocking the one
+  recovery action (NetworkManager restart / reboot) proven to work today.
+  After the grace period, escalation resumes normally.
+- **Fixed — watchdog could itself hang.** `nmcli`/`systemctl` calls used
+  inside `network_watchdog.sh` weren't timeout-wrapped. A watchdog that can
+  freeze defeats its purpose, especially since D-Bus/NetworkManager calls
+  are exactly what may be wedged during the failure it exists to fix. All
+  external calls now wrapped in `timeout`.
+- **Fixed — HTTP server socket leak.** `run_portal()` called
+  `server.shutdown()` but never `server.server_close()`, leaking a file
+  descriptor on port 80 every hotspot cycle over the unit's lifetime.
+- **Fixed — USB watcher could hammer `nmcli` forever.** If a drive
+  couldn't be unmounted/cleared (read-only or busy), the same config file
+  would be reprocessed every 5 s indefinitely. Added a 60 s cooldown after
+  any processing attempt, success or failure.
+- **Known limitation, not a bug — recovery hotspot needs physical
+  presence.** It only helps if someone is on-site with a phone/laptop to
+  join `DARKLABYRINTH-<N>` and use the captive portal (or plug in a USB
+  drive). It cannot help remotely from Berlin. The network watchdog's
+  reboot escalation is the mechanism that helps when nobody's on-site —
+  which is what actually fixed today's dm1/dm4 incident.
+- **Residual risk, unresolved — no coordination between the three
+  daemons.** `wifi_portal.py`, `usb_wifi_config.sh`, and
+  `network_watchdog.sh` each independently issue `nmcli`/NetworkManager
+  calls with no shared lock. NetworkManager's D-Bus interface generally
+  serializes concurrent client requests safely, but simultaneous triggers
+  (e.g. a USB drive inserted right as the watchdog restarts NetworkManager)
+  haven't been tested. Low probability in practice; flagged for future
+  hardening if it's ever observed.
+- **Residual risk, unresolved — DNS-hijack config isn't reverted.** The
+  `dnsmasq-shared.d/captive-portal.conf` file written for the captive
+  portal's DNS hijack is never removed after the hotspot tears down. Likely
+  harmless (it only takes effect while NetworkManager's shared/AP mode is
+  active) but not empirically verified on real hardware yet.

@@ -303,12 +303,23 @@ class WiFiPortalHandler(BaseHTTPRequestHandler):
 
 
 def check_wifi_configured():
-    """Check if we have a working WiFi connection"""
+    """True only if wlan0 is connected to a real network — NOT our own
+    recovery Hotspot. NetworkManager reports the device as 'connected' in
+    AP mode too, so a naive state-only check would make run_portal() tear
+    itself down within a second of starting (the hotspot itself counts as
+    'connected')."""
     try:
-        result = subprocess.run(['nmcli', '-t', '-f', 'GENERAL.STATE', 'dev', 'show', 'wlan0'],
-                              capture_output=True, text=True, timeout=5)
-        return 'connected' in result.stdout.lower()
-    except:
+        result = subprocess.run(
+            ['nmcli', '-t', '-f', 'GENERAL.STATE,GENERAL.CONNECTION', 'dev', 'show', 'wlan0'],
+            capture_output=True, text=True, timeout=5)
+        state, active_conn = '', ''
+        for line in result.stdout.splitlines():
+            if line.startswith('GENERAL.STATE:'):
+                state = line.split(':', 1)[1]
+            elif line.startswith('GENERAL.CONNECTION:'):
+                active_conn = line.split(':', 1)[1].strip()
+        return 'connected' in state.lower() and active_conn.lower() != 'hotspot'
+    except Exception:
         return False
 
 
@@ -372,6 +383,7 @@ def run_portal():
 
     log.info("WiFi restored, shutting down recovery hotspot")
     server.shutdown()
+    server.server_close()  # release port 80 — avoids an fd leak over many hotspot cycles
     subprocess.run(['nmcli', 'connection', 'down', 'Hotspot'], capture_output=True)
     subprocess.run(['nmcli', 'connection', 'delete', 'Hotspot'], capture_output=True)
 
