@@ -1,15 +1,12 @@
 #!/bin/bash
 # DREAMMACHINE USB WiFi Config Reader
-# Watches for USB drive with dreammachine-wifi.txt and applies config
+# Watches forever for a USB drive with dreammachine-wifi.txt and applies the
+# config — works for first-time setup AND later relocations (drop in a new
+# venue's credentials any time, no need to be "unconfigured" first).
 
 WATCH_DIR="/media/sjc"
 CONFIG_FILE="dreammachine-wifi.txt"
 DONE_MARKER="/home/sjc/.wifi_configured"
-
-# Already configured? Exit.
-if [ -f "$DONE_MARKER" ]; then
-    exit 0
-fi
 
 log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') $1" | tee -a /var/log/dreammachine-usb.log
@@ -40,12 +37,11 @@ while true; do
                         log "Connected to $SSID successfully"
                         touch "$DONE_MARKER"
                         
-                        # Safely eject USB
+                        # Remove config file first so a lingering/busy mount
+                        # doesn't get reprocessed on the next loop iteration
+                        rm -f "$mount/$CONFIG_FILE" 2>/dev/null
                         umount "$mount" 2>/dev/null
-                        log "USB ejected. Remove the drive."
-                        
-                        # Exit (we're done)
-                        exit 0
+                        log "USB ejected. Remove the drive. Watcher keeps running for future relocations."
                     else
                         log "ERROR: Failed to connect to $SSID"
                     fi

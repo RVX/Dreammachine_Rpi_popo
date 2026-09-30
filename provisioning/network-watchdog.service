@@ -1,0 +1,13 @@
+[Unit]
+Description=DREAMMACHINE Network Watchdog (auto-recover from network stack hangs)
+After=network.target NetworkManager.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/bin/bash /home/sjc/dreammachine/provisioning/network_watchdog.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

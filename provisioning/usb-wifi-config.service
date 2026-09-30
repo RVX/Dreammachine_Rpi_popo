@@ -1,7 +1,6 @@
 [Unit]
 Description=DREAMMACHINE USB WiFi Config Watcher
 After=local-fs.target
-ConditionPathExists=!/home/sjc/.wifi_configured
 
 [Service]
 Type=simple

@@ -343,16 +343,14 @@ def start_hotspot():
     log.info(f"Hotspot active. Connect to {HOTSPOT_SSID}")
 
 
-def main():
-    # If already configured, exit
-    if CONFIG_FILE.exists() and check_wifi_configured():
-        log.info("WiFi already configured, exiting")
-        return
-    
-    # Start hotspot
+CHECK_INTERVAL = 15   # seconds between connectivity checks while healthy
+FAIL_THRESHOLD = 4    # consecutive failed checks (~1 min) before opening the hotspot
+
+
+def run_portal():
+    """Start hotspot + serve the config portal until WiFi is restored."""
     start_hotspot()
-    
-    # Wait for hotspot IP to be assigned (NetworkManager is async)
+
     log.info("Waiting for hotspot IP assignment...")
     for _ in range(30):
         result = subprocess.run(['ip', 'addr', 'show', 'wlan0'],
@@ -361,11 +359,46 @@ def main():
             log.info(f"Hotspot IP {HOTSPOT_IP} is up")
             break
         time.sleep(1)
-    
-    # Start web server on all interfaces (more reliable than specific IP)
+
     server = HTTPServer(('0.0.0.0', 80), WiFiPortalHandler)
     log.info(f"Portal running at http://{HOTSPOT_IP}")
-    server.serve_forever()
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+
+    # Poll for successful reconnection (either via the portal itself or an
+    # external fix, e.g. USB config watcher) and tear the hotspot down.
+    while not check_wifi_configured():
+        time.sleep(CHECK_INTERVAL)
+
+    log.info("WiFi restored, shutting down recovery hotspot")
+    server.shutdown()
+    subprocess.run(['nmcli', 'connection', 'down', 'Hotspot'], capture_output=True)
+    subprocess.run(['nmcli', 'connection', 'delete', 'Hotspot'], capture_output=True)
+
+
+def main():
+    """Persistent monitor: fall back to the setup hotspot whenever WiFi is
+    down for a sustained period, whether that's first-boot (no credentials
+    yet), a relocation to a venue with different WiFi, or a mid-session drop.
+    Runs forever — never a one-shot check."""
+    fail_count = 0
+    while True:
+        if check_wifi_configured():
+            if fail_count > 0:
+                log.info("WiFi connectivity confirmed, resetting fail counter")
+            fail_count = 0
+            time.sleep(CHECK_INTERVAL)
+            continue
+
+        fail_count += 1
+        log.warning(f"WiFi not connected ({fail_count}/{FAIL_THRESHOLD} checks)")
+        if fail_count < FAIL_THRESHOLD:
+            time.sleep(CHECK_INTERVAL)
+            continue
+
+        log.warning("WiFi down for sustained period — opening recovery hotspot")
+        run_portal()
+        fail_count = 0
 
 
 if __name__ == '__main__':
