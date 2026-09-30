@@ -63,6 +63,12 @@ hotspot_active() {
 # invisible-to-the-audience problem (no remote access) for the worst-case
 # outcome (silence + darkness in front of visitors). Reboot is only allowed
 # once the show itself is confirmed down too.
+#
+# Note: dreammachine-led.service is intentionally stopped during closed
+# hours (23:00-09:45, see show_hours_gate.sh), so this will report
+# "unhealthy" overnight even though nothing is actually wrong. That's fine —
+# a reboot triggered by a network fault during closed hours has no visitor
+# impact, and doubles as a harmless extra maintenance reboot.
 show_is_healthy() {
     pgrep -x reaper >/dev/null 2>&1 || return 1
     timeout 5 systemctl is-active --quiet dreammachine-led.service || return 1

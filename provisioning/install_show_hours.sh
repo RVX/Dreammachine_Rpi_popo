@@ -10,7 +10,12 @@ set -e
 
 echo "==> Installing show-hours gating + nightly maintenance reboot..."
 
-sudo cp provisioning/show_hours_gate.sh /home/sjc/dreammachine/provisioning/
+# Skip the copy if already the deployed file (script run from inside
+# /home/sjc/dreammachine itself, not from a separate release checkout).
+if [ ! -e /home/sjc/dreammachine/provisioning/show_hours_gate.sh ] || \
+   [ "$(readlink -f provisioning/show_hours_gate.sh)" != "$(readlink -f /home/sjc/dreammachine/provisioning/show_hours_gate.sh)" ]; then
+    sudo cp provisioning/show_hours_gate.sh /home/sjc/dreammachine/provisioning/
+fi
 sudo chmod +x /home/sjc/dreammachine/provisioning/show_hours_gate.sh
 sudo chown sjc:sjc /home/sjc/dreammachine/provisioning/show_hours_gate.sh
 

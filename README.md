@@ -93,21 +93,39 @@ SPI-based) — the legacy direct-GPIO `led_controller.py` is deprecated.
 
 ## Network
 
-| Pi | Hostname | User | Tailscale IP | RustDesk ID | RustDesk PW |
-|---|---|---|---|---|---|
-| 1 | sjcdm1 | sjc | 100.64.131.41 | 336347711 | OMRdream1 |
-| 2 | sjcdm2 | sjc | 100.114.177.74 | 336348152 | OMRdream2 |
-| 3 | sjcdm3 | sjc | 100.85.254.127 | 336348338 | OMRdream3 |
-| 4 | sjcdm4 | sjc | 100.103.58.47 | 336348023 | OMRdream4 |
-| 5 | sjcdm5 | sjc | 100.93.96.91 | 336347026 | OMRdream5 |
+| Pi | Hostname | User | WiFi SSID (pinned) | Local IP | Tailscale IP | RustDesk ID | RustDesk PW |
+|---|---|---|---|---|---|---|---|
+| 1 | sjcdm1 | sjc | OMR-Equipo | ? (not yet checked) | 100.64.131.41 | 336347711 | OMRdream1 |
+| 2 | sjcdm2 | sjc | OMR-Equipo | 192.168.1.198 | 100.114.177.74 | 336348152 | OMRdream2 |
+| 3 | sjcdm3 | sjc | OMR-Equipo | ? (not yet checked) | 100.85.254.127 | 336348338 | OMRdream3 |
+| 4 | sjcdm4 | sjc | OMR-Equipo | 192.168.1.77 | 100.103.58.47 | 336348023 | OMRdream4 |
+| 5 | sjcdm5 | sjc | OMR-Equipo | 192.168.1.203 | 100.93.96.91 | 336347026 | OMRdream5 |
 
 Password for `sjc` user: `sjcsjc` (only needed until the SSH key is installed).
-WiFi: OMR-Equipo (equipment network — OMR-VISITAS has AP isolation).
+WiFi: **OMR-Equipo only** (equipment network — OMR-VISITAS has AP isolation).
+The venue also broadcasts `OMR-WIFI-5G` on the same 192.168.1.0/24 subnet —
+**do not let units auto-connect to it**: found on 2026-09-30 that dm2 had a
+stray `OMR-WIFI-5G` NetworkManager profile with a *higher* autoconnect
+priority than `OMR-Equipo`, which could silently roam the Pi onto a different
+DHCP lease/IP and break RustDesk's cached direct-connect address. Every unit
+should have only `OMR-Equipo` set to autoconnect (`provisioning/field_fix.sh`
+enforces this — see "Field fix" below). On-site, if a RustDesk ID connection
+fails, connect by the unit's **Local IP** above instead — direct-IP bypasses
+the relay entirely and was confirmed reliable when the ID/relay path was not.
 
 SSH pattern (Windows PowerShell):
 ```powershell
 $env:PATH += ";C:\Windows\System32\OpenSSH"
 ssh -i "$env:USERPROFILE\.ssh\id_ed25519_dreammachine" -o IdentitiesOnly=yes -o StrictHostKeyChecking=no sjc@<TAILSCALE_IP>
+```
+
+### Field fix (run once per unit when on-site)
+
+Applies everything found/fixed during the 2026-09-30 reliability pass:
+timezone, WiFi pinning, watchdogs, show-hours gating, monitoring. Idempotent,
+safe to re-run.
+```bash
+ssh sjc@<unit local IP or hostname.local> 'cd /home/sjc/dreammachine && git pull && bash provisioning/field_fix.sh'
 ```
 
 **Headless RustDesk fix:** all units have `video=HDMI-A-1:1920x1080@60e` in

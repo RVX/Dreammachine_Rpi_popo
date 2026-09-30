@@ -4,11 +4,20 @@ set -e
 
 echo "==> Installing WiFi setup services..."
 
+# Skip copies that are already the deployed file (script run from inside
+# /home/sjc/dreammachine itself, not from a separate release checkout).
+safe_cp() {
+    if [ -e "$2" ] && [ "$(readlink -f "$1")" = "$(readlink -f "$2")" ]; then
+        return 0
+    fi
+    sudo cp "$1" "$2"
+}
+
 # Copy files
-sudo cp provisioning/wifi_portal.py /home/sjc/dreammachine/provisioning/
-sudo cp provisioning/usb_wifi_config.sh /home/sjc/dreammachine/provisioning/
-sudo cp provisioning/network_watchdog.sh /home/sjc/dreammachine/provisioning/
-sudo cp provisioning/show_watchdog.sh /home/sjc/dreammachine/provisioning/
+safe_cp provisioning/wifi_portal.py /home/sjc/dreammachine/provisioning/
+safe_cp provisioning/usb_wifi_config.sh /home/sjc/dreammachine/provisioning/
+safe_cp provisioning/network_watchdog.sh /home/sjc/dreammachine/provisioning/
+safe_cp provisioning/show_watchdog.sh /home/sjc/dreammachine/provisioning/
 sudo cp provisioning/wifi-portal.service /etc/systemd/system/
 sudo cp provisioning/usb-wifi-config.service /etc/systemd/system/
 sudo cp provisioning/network-watchdog.service /etc/systemd/system/
