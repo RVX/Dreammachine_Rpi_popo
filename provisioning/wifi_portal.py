@@ -356,6 +356,27 @@ def start_hotspot():
 
 CHECK_INTERVAL = 15   # seconds between connectivity checks while healthy
 FAIL_THRESHOLD = 4    # consecutive failed checks (~1 min) before opening the hotspot
+SELF_HEAL_INTERVAL = 180  # seconds between automatic known-network retries while stranded
+SELF_HEAL_WINDOW = 25     # seconds to wait for a saved network to associate before re-arming
+
+
+def try_reconnect_known_network():
+    """Briefly drop the hotspot and let NetworkManager auto-reconnect to any
+    saved profile back in range. For units with no physical access (hidden
+    install points), the portal alone is a dead end if the outage was just a
+    transient AP/signal blip rather than a real reconfiguration need — this
+    is what lets those self-heal without a human ever touching the unit.
+    Returns True if a real network came back up."""
+    log.info("Self-heal: bringing hotspot down to probe for known networks")
+    subprocess.run(['nmcli', 'connection', 'down', 'Hotspot'], capture_output=True, timeout=10)
+    for _ in range(SELF_HEAL_WINDOW):
+        time.sleep(1)
+        if check_wifi_configured():
+            log.info("Self-heal succeeded: known network reassociated on its own")
+            return True
+    log.info("Self-heal probe found nothing in range, restoring recovery hotspot")
+    subprocess.run(['nmcli', 'connection', 'up', 'Hotspot'], capture_output=True, timeout=15)
+    return False
 
 
 def run_portal():
@@ -376,10 +397,16 @@ def run_portal():
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
 
-    # Poll for successful reconnection (either via the portal itself or an
-    # external fix, e.g. USB config watcher) and tear the hotspot down.
+    # Poll for successful reconnection (via the portal, an external fix e.g.
+    # USB config watcher, or our own periodic self-heal probe below) and
+    # tear the hotspot down.
+    last_self_heal = time.monotonic()
     while not check_wifi_configured():
         time.sleep(CHECK_INTERVAL)
+        if time.monotonic() - last_self_heal >= SELF_HEAL_INTERVAL:
+            last_self_heal = time.monotonic()
+            if try_reconnect_known_network():
+                break
 
     log.info("WiFi restored, shutting down recovery hotspot")
     server.shutdown()
