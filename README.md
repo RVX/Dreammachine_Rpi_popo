@@ -313,6 +313,82 @@ different tool for the Pi's own bootloader SPI EEPROM — not this):
    eepdump hifiberry_eeprom_dump.eep hifiberry_eeprom_dump.txt
    ```
 
+## Golden-Master Parity Checklist
+
+**Run this on every unit whenever it's touched — new provisioning, a git
+pull/deploy, or just "bringing it up to date" — not just on units that seem
+to have a problem.** dm2 and dm3 each independently lost hours this way:
+older units silently missed fixes/services that got added to
+`provision_unit.sh` *after* they were first imaged, and nothing ever flagged
+the gap because each fix only shows symptoms once someone happens to hit
+that specific scenario (a reboot with no monitor, a dongle pulled out, etc).
+`git log`/`git pull` succeeding is **not** evidence a unit is caught up —
+several of these are config/state changes that live outside git (kernel
+cmdline, systemd enablement, physically-flashed firmware) or file
+permissions that git can silently fail to restore (see exec-bit note below).
+
+Copy this list per-unit and check every line — don't assume "it's probably
+fine" for anything not visibly broken:
+
+1. **Desktop session is X11, not Wayland/labwc.**
+   `ps aux | grep -E 'Xorg|labwc'` — must show `Xorg`/`Openbox`, not
+   `labwc`. If `labwc` is running, `sudo raspi-config nonint do_wayland W1`
+   and reboot (a live session won't switch without one, even if
+   `/etc/lightdm/lightdm.conf` already says `user-session=rpd-x`). Symptom
+   if missed: RustDesk prompts "Please select the screen to be shared" and
+   drag-and-drop into REAPER is unreliable.
+2. **Headless RustDesk resolution fix is present.**
+   `ls /etc/xdg/autostart/set-display-resolution.desktop` and
+   `grep video=HDMI /boot/firmware/cmdline.txt` — both must exist. If
+   either is missing: `sudo cp provisioning/set-display-resolution.desktop
+   /etc/xdg/autostart/` and `sudo sed -i 's/ quiet splash/ quiet splash
+   video=HDMI-A-1:1920x1080@60e/' /boot/firmware/cmdline.txt` (guard with
+   `grep -q video=HDMI ... || sed ...` to avoid double-patching). Symptom if
+   missed: RustDesk shows "No Displays" or a black screen with no monitor
+   attached.
+3. **`start_reaper.sh` (and any other directly-`@exec`'d autostart script)
+   still has its executable bit**, and REAPER is actually running — not
+   just "the bit looks fine".
+   `ls -la systemd/start_reaper.sh` (must show `x`), then `pgrep -af
+   '/usr/local/bin/reaper'` and `sudo fuser -v /dev/snd/pcmC<N>D0p` (get
+   `<N>` from `aplay -l | grep -A1 sndrpihifiberry` — **the DAC card number
+   is not the same on every unit**, don't assume `C2D0p`). A missing +x bit
+   fails **completely silently** — no error anywhere, sibling autostart
+   entries still launch fine — because `core.fileMode false` (set
+   fleet-wide) stops git from ever re-applying a lost +x bit on a pull that
+   doesn't change that file's content.
+4. **RP2350 firmware on the physical chip matches the current
+   `rp2350/main.c` source**, not just "the source got pulled".
+   `md5sum rp2350/main.c` and compare against a known-good unit (or
+   `grep -n '0x08\|0x09' rp2350/main.c` to confirm the FLS command handlers
+   exist in source at all). If the source is current but the running
+   behavior is stale, the compiled `.elf` needs rebuilding+reflashing — if
+   this unit lacks the Pico SDK toolchain (`ls ~/pico-sdk`, `which cmake
+   arm-none-eabi-gcc`), it's safe to scp a `.elf` from another unit whose
+   `main.c` md5sum matches exactly, then flash locally with `sudo openocd
+   -f rp2350/rpi4-rp2350-swd.cfg -f target/rp2350.cfg -c "program
+   rp2350/build/dreammachine_rp2350.elf verify reset exit"` — openocd must
+   run on the target unit itself (talks to the chip over local SWD wiring)
+   but the elf itself is fully portable given identical source. After
+   flashing, restart whatever talks to the RP2350 over SPI (`sudo
+   systemctl restart dreammachine-led.service`) and check its log for the
+   expected startup line.
+5. **Network hardening services are active.**
+   `systemctl is-active wifi-portal usb-wifi-config network-watchdog` — all
+   three must say `active`. If not deployed yet, see the "Network
+   resilience hardening" changelog entry below for the full service list.
+6. **Only sjcdm4 runs a Telegram poller.**
+   `systemctl is-active telegram-bot.service` must be `inactive`/disabled
+   on every unit except dm4 (which runs
+   `telegram-bot-master.service` instead). Two active pollers on the same
+   bot token silently drop random commands (see Telegram 409 changelog
+   entry).
+7. **Git is actually caught up, not just "pulled without error".**
+   `git log -1 --oneline` compared against the reference unit — a clean
+   fast-forward pull can still leave a unit behind if it was stashed
+   instead of merged, or if the reference unit itself got a later commit
+   after this unit's last pull.
+
 ## Troubleshooting
 
 **"Error opening devices... JACK error creating client"** on first boot: REAPER
@@ -615,6 +691,36 @@ silently non-functional fleet-wide, plus lower-severity risks:
   portal's DNS hijack is never removed after the hotspot tears down. Likely
   harmless (it only takes effect while NetworkManager's shared/AP mode is
   active) but not empirically verified on real hardware yet.
+
+### dm2 found still missing fixes from before it was first imaged
+
+While deploying network hardening to dm2, two unrelated gaps surfaced —
+neither caused by today's work, both present since dm2's original
+provisioning, both silent until specifically tested:
+
+- **REAPER autostart down for the unit's entire uptime (8.5 h)**, same
+  `start_reaper.sh` lost-executable-bit bug as dm4 (see above) — found via
+  `pgrep -af '/usr/local/bin/reaper'` returning nothing. Fixed with
+  `chmod +x` and a manual relaunch (`setsid nohup ... & disown`).
+- **RP2350 firmware physically stale**: dm2's `rp2350/main.c` source was
+  brought current by the git pull, but the compiled binary on the chip
+  predated the `0x08`/`0x09` FLS strobe commands. dm2 also has no Pico SDK
+  toolchain installed. Fixed by confirming an `md5sum` match on `main.c`
+  against dm4 (whose `.elf` was already rebuilt this session), scp'ing
+  dm4's `.elf` over, and flashing it locally via OpenOCD/SWD — see the new
+  Golden-Master Parity Checklist above for the reusable procedure.
+- **Still on `labwc` (Wayland), not X11** — RustDesk showed "Please select
+  the screen to be shared (Operate on the peer side)". `set-display-
+  resolution.desktop` and the `video=HDMI-A-1:1920x1080@60e` cmdline fix
+  were also both completely absent (dm1/3/4 already had them). Fixed via
+  `raspi-config nonint do_wayland W1` + both display fixes, pending a
+  reboot to confirm.
+- **Root cause, all three**: dm2 was never re-audited against
+  `provision_unit.sh`'s current checklist after fixes were added
+  post-imaging — each one only surfaces when something specific happens to
+  exercise it (a reboot, a fresh RustDesk connect, the FLS feature). This
+  is exactly the gap the new Golden-Master Parity Checklist section above
+  exists to close going forward.
 
 ### Telegram bot 409 Conflict (fleet commands randomly dropped)
 
