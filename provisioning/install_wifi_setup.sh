@@ -7,10 +7,12 @@ echo "==> Installing WiFi setup services..."
 # Skip copies that are already the deployed file (script run from inside
 # /home/sjc/dreammachine itself, not from a separate release checkout).
 safe_cp() {
-    if [ -e "$2" ] && [ "$(readlink -f "$1")" = "$(readlink -f "$2")" ]; then
+    local dest="$2"
+    [ -d "$dest" ] && dest="$dest/$(basename "$1")"
+    if [ -e "$dest" ] && [ "$(readlink -f "$1")" = "$(readlink -f "$dest")" ]; then
         return 0
     fi
-    sudo cp "$1" "$2"
+    sudo cp "$1" "$dest"
 }
 
 # Copy files
