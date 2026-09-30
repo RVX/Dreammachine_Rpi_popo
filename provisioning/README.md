@@ -176,8 +176,39 @@ external call in `timeout` so a watchdog can't itself hang.
 
 **Still open / not yet implemented** (see project plan): periodic (not just
 boot-time) Telegram/email heartbeats fleet-wide (currently dm4 only),
-software-only show-hours gating via mute/unmute timers, RP2350 firmware
-amp-unmute hardening (continuous retry / status readback instead of a
-one-shot 300ms window), UPS/battery buffering, and physical/electrical
-investigation of dm4's fuse issue.
+RP2350 firmware amp-unmute hardening (continuous retry / status readback
+instead of a one-shot 300ms window), UPS/battery buffering, and
+physical/electrical investigation of dm4's fuse issue (deferred — not
+realistic to improve this hardware at the moment).
+
+### Show-hours gating + nightly maintenance reboot (added 2026-10-01)
+
+Installed by [install_show_hours.sh](install_show_hours.sh):
+
+- **09:45 daily** — `dreammachine-show-open.timer` runs
+  [show_hours_gate.sh](show_hours_gate.sh) `open`: starts
+  `dreammachine-led.service` and unmutes the amp.
+- **23:00 daily** — `dreammachine-show-close.timer` runs the same script
+  `close`: mutes the amp and stops `dreammachine-led.service`.
+- **REAPER itself is never stopped or restarted** by this gating — it keeps
+  its tracks looping quietly in the background the whole time. Only the amp
+  and LED output are gated. This avoids the reliability/SD-corruption risk
+  of power-cycling or restarting the audio engine daily.
+- **03:00 daily** (well inside the closed window) —
+  `dreammachine-nightly-reboot.timer` does a full `reboot`. This exists
+  because the fleet runs unattended for months (currently Mexico City, with
+  no guarantee of on-site or remote access at any given moment) — a nightly
+  reboot during closed hours gives a guaranteed, zero-visitor-risk way to
+  clear any slow memory/X11/log drift, instead of depending on someone being
+  able to remote in to reboot manually. No `Persistent=true` on this one on
+  purpose — if it's missed one night, better to skip it than have it fire
+  late during show hours.
+- **Timezone-dependent**: `OnCalendar` uses the Pi's local system timezone.
+  Verify with `timedatectl` on each unit before relying on this; set with
+  `sudo timedatectl set-timezone America/Mexico_City` if wrong.
+- Interaction with the watchdogs above: `dreammachine-led.service` is
+  intentionally stopped 23:00-09:45, so `network_watchdog.sh`'s
+  `show_is_healthy()` check will report "unhealthy" overnight — that's
+  expected and harmless (no visitor impact, and any resulting reboot is just
+  a bonus maintenance reboot).
 

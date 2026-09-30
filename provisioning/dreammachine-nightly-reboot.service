@@ -1,0 +1,12 @@
+[Unit]
+Description=DREAMMACHINE nightly maintenance reboot (03:00, well inside the 23:00-09:45 closed window)
+# Only runs during closed hours -> zero visitor-facing risk. Exists because
+# this fleet runs unattended for months at a time (currently Mexico City,
+# on-site access is not guaranteed) with no other guaranteed way to force a
+# periodic clean restart if remote access is ever unavailable. Clears any
+# slow memory/X11/log growth before it can become a problem, long before
+# the next 09:45 open.
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/reboot

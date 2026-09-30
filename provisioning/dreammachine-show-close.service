@@ -1,0 +1,6 @@
+[Unit]
+Description=DREAMMACHINE show-hours CLOSE (23:00 daily — mute amp, stop LEDs)
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /home/sjc/dreammachine/provisioning/show_hours_gate.sh close

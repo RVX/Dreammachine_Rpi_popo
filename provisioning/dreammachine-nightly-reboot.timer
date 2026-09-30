@@ -1,0 +1,12 @@
+[Unit]
+Description=Trigger DREAMMACHINE nightly maintenance reboot at 03:00
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+# No Persistent=true here on purpose: if the Pi happens to be off/rebooting
+# right at 03:00 for any reason, we do NOT want a catch-up reboot firing
+# later during show hours. Missing one night's maintenance reboot is fine.
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

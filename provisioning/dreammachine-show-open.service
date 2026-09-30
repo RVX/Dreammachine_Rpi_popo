@@ -1,0 +1,6 @@
+[Unit]
+Description=DREAMMACHINE show-hours OPEN (09:45 daily — unmute amp, start LEDs)
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /home/sjc/dreammachine/provisioning/show_hours_gate.sh open
