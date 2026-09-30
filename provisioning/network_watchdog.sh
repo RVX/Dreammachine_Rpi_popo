@@ -56,6 +56,19 @@ hotspot_active() {
     timeout 5 nmcli -t -f NAME connection show --active 2>/dev/null | grep -qx "Hotspot"
 }
 
+# show_is_healthy: the ONLY thing that justifies a reboot. The installation's
+# top priority is that REAPER audio + LEDs never stop; network status is
+# explicitly secondary. A network-only failure must NEVER reboot a unit
+# whose show is otherwise running fine — that would trade a recoverable,
+# invisible-to-the-audience problem (no remote access) for the worst-case
+# outcome (silence + darkness in front of visitors). Reboot is only allowed
+# once the show itself is confirmed down too.
+show_is_healthy() {
+    pgrep -x reaper >/dev/null 2>&1 || return 1
+    timeout 5 systemctl is-active --quiet dreammachine-led.service || return 1
+    return 0
+}
+
 log "Network watchdog settled, entering monitor loop"
 
 while true; do
@@ -90,8 +103,18 @@ while true; do
         fi
 
         if [ "$FAIL_COUNT" -ge "$REBOOT_AFTER" ]; then
-            log "Network still down $((REBOOT_AFTER * CHECK_INTERVAL / 60)) min after NetworkManager restart — rebooting as last resort"
-            reboot
+            if show_is_healthy; then
+                log "Network still down $((REBOOT_AFTER * CHECK_INTERVAL / 60)) min, but REAPER+LED are healthy — NOT rebooting (show keeps playing). Will keep retrying NetworkManager."
+                # Re-arm the NM-restart action so we keep trying to recover the
+                # network without ever escalating to a reboot on our own while
+                # the show is fine. A human can still recover it fully via
+                # RustDesk/Telegram/SSH whenever connectivity comes back.
+                FAIL_COUNT=$RESTART_NM_AFTER
+                NM_RESTARTED=0
+            else
+                log "Network down $((REBOOT_AFTER * CHECK_INTERVAL / 60)) min AND show is not healthy (REAPER/LED down) — rebooting as last resort"
+                reboot
+            fi
         fi
     fi
     sleep "$CHECK_INTERVAL"

@@ -140,3 +140,44 @@ enabling since it changes NetworkManager setup.
   on collector sites, self-host the relay (hbbs/hbbr) on the same VPS.
 
 ## Notes / caveats (cont.)
+
+## Reliability architecture: the show must never stop (added 2026-10-01)
+
+**Top priority for this installation**: REAPER audio + LEDs run continuously
+9:45-23:00 daily. Network/internet availability is explicitly secondary — if
+there is no internet, the show must keep playing exactly the same. Silence
+or dark LEDs is the worst-case outcome, worse than losing remote access.
+
+This means: **nothing that exists only to fix a network problem is allowed
+to interrupt the show.** Concretely, `network_watchdog.sh`'s last-resort
+reboot (previously triggered purely by sustained network loss) now checks
+`show_is_healthy()` (REAPER process running + `dreammachine-led.service`
+active) first, and refuses to reboot a unit whose show is fine — it just
+keeps retrying NetworkManager instead, indefinitely.
+
+Two independent watchdogs, installed together by `install_wifi_setup.sh`:
+
+- **[network_watchdog.sh](network_watchdog.sh) / `network-watchdog.service`**
+  — recovers a hung network stack (NetworkManager restart, then reboot —
+  but only if the show is also down). Doesn't care about REAPER/LEDs unless
+  deciding whether a reboot is safe.
+- **[show_watchdog.sh](show_watchdog.sh) / `show-watchdog.service`** (new)
+  — recovers a hung/dead REAPER. lxsession's `@`-prefix autostart
+  (`systemd/rpd-x-autostart`) already restarts `start_reaper.sh` if it
+  *exits*, but that mechanism can't catch an **Xorg hang** (X11 still
+  "running" but wedged — observed in the field on dm3). This watchdog
+  detects `reaper` not running for ~3 min and automates the known-good
+  manual fix from [debug_autostart.sh](debug_autostart.sh)
+  (`systemctl restart lightdm`), and only reboots if that doesn't bring
+  REAPER back after a couple of tries.
+
+Both watchdogs log to `/var/log/dreammachine-*-watchdog.log` and wrap every
+external call in `timeout` so a watchdog can't itself hang.
+
+**Still open / not yet implemented** (see project plan): periodic (not just
+boot-time) Telegram/email heartbeats fleet-wide (currently dm4 only),
+software-only show-hours gating via mute/unmute timers, RP2350 firmware
+amp-unmute hardening (continuous retry / status readback instead of a
+one-shot 300ms window), UPS/battery buffering, and physical/electrical
+investigation of dm4's fuse issue.
+
