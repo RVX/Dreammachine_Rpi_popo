@@ -564,6 +564,38 @@ silently non-functional fleet-wide, plus lower-severity risks:
   DAC, and the 1920x1080 resolution fix all survived the reboot intact.
   This is the exact failure mode (no wired fallback, unattended field unit)
   the whole feature exists for — first fully clean end-to-end confirmation.
+- **Validated on dm4 and dm3 — same WiFi-only reboot test.** Both units
+  confirmed clean: `eth0 DOWN`, boot-settle within seconds, no spurious
+  hotspot, REAPER/DAC/1920x1080 all intact. dm4's pull also surfaced a real
+  bug (see below); dm3 was clean end-to-end.
+- **Fixed — `git pull` can silently strip a script's executable bit.**
+  `core.fileMode false` (set fleet-wide to stop false "modified" diffs from
+  Windows/Linux chmod differences) means git never re-applies a file's
+  recorded executable bit on checkout if the on-disk content already
+  matches — it only rewrites permissions when it rewrites content. Found on
+  dm4: `systemd/start_reaper.sh` had lost its `+x` bit locally at some point
+  before this session; a large catch-up pull didn't touch that file's
+  content (already identical upstream), so the missing `+x` was never
+  restored. LXDE's autostart entry (`@/path/to/start_reaper.sh`, a direct
+  exec, not `bash script.sh`) then failed silently — no REAPER, no amp,
+  no error in `.xsession-errors` or journalctl. Fixed by `chmod +x` and
+  confirmed it persists across a subsequent reboot. **Any deploy/pull to a
+  unit should end with `ls -la systemd/start_reaper.sh` (and any other
+  directly-exec'd script) before trusting it, not just `git log`.**
+- **Field note — WiFi signal strength varies a lot by unit placement, and
+  the exhibition network will be weaker than the studio/test network.**
+  dm3, in its current test spot, sees `OMR-Equipo` at only ~47% signal (2
+  bars) vs. 70–80% for other nearby networks — enough to cause recurring
+  brief connectivity blips (watchdog logs a failed check + recovery every
+  few minutes). Each blip self-heals well under the escalation thresholds
+  (`RESTART_NM_AFTER=4`, `REBOOT_AFTER=20` consecutive failures), so nothing
+  broke, but it's a preview of what to expect at the actual exhibition,
+  where WiFi is expected to be low-quality/congested. Worth checking signal
+  strength (`nmcli -f IN-USE,SSID,SIGNAL,BARS dev wifi`) at each unit's final
+  install position, and prioritizing placement/AP proximity over convenience
+  where possible — the watchdog will keep units alive through weak signal,
+  but it can't fix packet loss affecting REAPER/OSC/Telegram responsiveness
+  in real time.
 - **Known limitation, not a bug — recovery hotspot needs physical
   presence.** It only helps if someone is on-site with a phone/laptop to
   join `DARKLABYRINTH-<N>` and use the captive portal (or plug in a USB
