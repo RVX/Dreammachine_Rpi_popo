@@ -29,12 +29,12 @@ done
 journalctl --vacuum-size=50M > /dev/null 2>&1
 
 # Clean old POPO wav files (script already prunes with --keep-days, belt+braces)
-find /home/sjc/popo/datasets/ground/sonifications/ -name "popo_live_*" -mtime +7 -delete 2>/dev/null
-find /home/sjc/popo/datasets/ground/mseed/ -name "popo_live_*" -mtime +7 -delete 2>/dev/null
+find /home/sjc/popo/datasets/ground/sonifications/ -name "popo_live_*" -mtime +3 -delete 2>/dev/null
+find /home/sjc/popo/datasets/ground/mseed/ -name "popo_live_*" -mtime +3 -delete 2>/dev/null
 
-# REAPER auto-save backups grow forever with no built-in rotation; keep 14
-# days of undo history, prune the rest (nothing else touches this folder)
-find /home/sjc/reaper-projects/*/Backups/ -type f \( -name "*.rpp-bak" -o -name "*.RPP" \) -mtime +14 -delete 2>/dev/null
+# REAPER auto-save backups grow forever with no built-in rotation and aren't
+# important to keep — prune anything older than 1 day
+find /home/sjc/reaper-projects/*/Backups/ -type f \( -name "*.rpp-bak" -o -name "*.RPP" \) -mtime +1 -delete 2>/dev/null
 
 # Log disk usage
 df -h / | tail -1 | logger -t dreammachine-disk

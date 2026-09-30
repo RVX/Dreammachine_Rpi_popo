@@ -1,0 +1,6 @@
+[Unit]
+Description=Dreammachine log/data rotation (prevent SD card fill-up)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/dreammachine-logrotate.sh

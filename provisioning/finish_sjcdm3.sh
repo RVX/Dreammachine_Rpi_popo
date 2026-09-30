@@ -46,12 +46,16 @@ if [ ! -d /home/sjc/popo/.git ]; then
     mkdir -p /home/sjc/popo
     git clone -q https://github.com/RVX/Popocatepetl_mounts-observatory_sonification.git /home/sjc/popo
 fi
-(crontab -l 2>/dev/null | grep -v popo; echo "7 * * * * cd /home/sjc/popo && /usr/bin/python3 POPO_fdsnws_mounts_omr.py --stagger-minutes 30 >> /tmp/popo_live.log 2>&1") | crontab -
+(crontab -l 2>/dev/null | grep -v popo; echo "7 11-18 * * * cd /home/sjc/popo && /usr/bin/python3 POPO_fdsnws_mounts_omr.py --stagger-minutes 30 >> /tmp/popo_live.log 2>&1") | crontab -
 
-# Logrotate
+# Logrotate — systemd timer (Persistent=true) instead of cron, so a missed
+# 4am run (unit off/rebooting) still fires once on next boot
 echo sjcsjc | sudo -S cp provisioning/dreammachine-logrotate.sh /usr/local/bin/
 echo sjcsjc | sudo -S chmod +x /usr/local/bin/dreammachine-logrotate.sh
-echo "0 4 * * * /usr/local/bin/dreammachine-logrotate.sh" | echo sjcsjc | sudo -S tee /etc/cron.d/dreammachine-logrotate > /dev/null
+echo sjcsjc | sudo -S rm -f /etc/cron.d/dreammachine-logrotate
+echo sjcsjc | sudo -S cp provisioning/dreammachine-logrotate.service /etc/systemd/system/
+echo sjcsjc | sudo -S cp provisioning/dreammachine-logrotate.timer /etc/systemd/system/
+echo sjcsjc | sudo -S systemctl enable --now dreammachine-logrotate.timer
 
 # RP2350 flash
 echo sjcsjc | sudo -S openocd -f /home/sjc/dreammachine/rp2350/rpi4-rp2350-swd.cfg \
