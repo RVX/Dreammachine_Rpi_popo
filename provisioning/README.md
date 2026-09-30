@@ -174,12 +174,34 @@ Two independent watchdogs, installed together by `install_wifi_setup.sh`:
 Both watchdogs log to `/var/log/dreammachine-*-watchdog.log` and wrap every
 external call in `timeout` so a watchdog can't itself hang.
 
-**Still open / not yet implemented** (see project plan): periodic (not just
-boot-time) Telegram/email heartbeats fleet-wide (currently dm4 only),
-RP2350 firmware amp-unmute hardening (continuous retry / status readback
-instead of a one-shot 300ms window), UPS/battery buffering, and
-physical/electrical investigation of dm4's fuse issue (deferred — not
-realistic to improve this hardware at the moment).
+**Still open / not yet implemented** (see project plan): RP2350 firmware
+amp-unmute hardening (continuous retry / status readback instead of a
+one-shot 300ms window), UPS/battery buffering, and physical/electrical
+investigation of dm4's fuse issue (deferred — not realistic to improve this
+hardware at the moment).
+
+### Fleet monitoring: Telegram + email (added 2026-10-01, was dm4-only prototype)
+
+Installed by [install_monitoring.sh](install_monitoring.sh) — now tracked
+under [monitoring/](monitoring/) instead of living only as a one-off on dm4:
+
+- **Boot notification** (`notify-boot.service` → `notify.py`) — Telegram +
+  email on every boot with hostname, uptime, WiFi/Tailscale/public IP, LED
+  service + REAPER status, temp, disk.
+- **On-demand Telegram bot** (`telegram-bot.service` → `telegram_bot.py`,
+  `Restart=always`) — `/status`, `/statusdm<N>`, `/uptime`, `/ip`, `/boots`,
+  `/errors`, `/update` (git pull + restart services), `/flash` (reflash
+  RP2350 firmware), `/help`. Each unit only answers its own
+  `/status<alias>`/`/update<alias>` commands so a group chat with the whole
+  fleet works without cross-talk.
+- **Periodic heartbeat** (`dreammachine-heartbeat.timer`, new) — same
+  message as boot notification but at 10:00/14:00/18:00/22:00 daily, so a
+  silent mid-day failure (REAPER crashed but Pi stayed up) is caught within
+  a few hours instead of only at the next reboot. Best-effort/opportunistic
+  only — if there's no internet it just fails silently and retries next
+  cycle, never touches the show.
+- Needs `/home/sjc/.email_password` (Gmail App Password) per unit for email
+  delivery — not tracked in git, copy manually. Telegram works without it.
 
 ### Show-hours gating + nightly maintenance reboot (added 2026-10-01)
 

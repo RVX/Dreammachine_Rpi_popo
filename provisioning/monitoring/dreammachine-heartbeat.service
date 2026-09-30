@@ -1,0 +1,13 @@
+[Unit]
+Description=DREAMMACHINE periodic heartbeat notification (Telegram + email)
+# notify.py boot mode already covers boot; this covers "something died
+# silently mid-day without a reboot" (e.g. REAPER crashed but the Pi itself
+# stayed up). Best-effort only: if there's no internet this just fails
+# silently and is retried next cycle — never touches the show.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=sjc
+ExecStart=/usr/bin/python3 /home/sjc/notify.py heartbeat

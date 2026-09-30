@@ -1,0 +1,13 @@
+[Unit]
+Description=Trigger DREAMMACHINE heartbeat notification every 4 hours during show hours
+
+[Timer]
+# 10:00, 14:00, 18:00, 22:00 — inside the 09:45-23:00 show window, spaced so
+# a mid-day failure is caught within a few hours instead of only at the
+# next boot.
+OnCalendar=*-*-* 10,14,18,22:00:00
+Persistent=false
+AccuracySec=5min
+
+[Install]
+WantedBy=timers.target
