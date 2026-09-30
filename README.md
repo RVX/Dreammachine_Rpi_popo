@@ -471,3 +471,33 @@ Built for **DREAMMACHINE** by Víctor Mazón Gardoqui. 2026.
   amp unmuted cleanly
 - dm5: unreachable at time of writing (offline / Tailscale down) — pending
   reflash next time online
+
+### Network resilience hardening (dm1/dm4 went fully unreachable mid-session)
+
+Both dm1 and dm4 went completely unreachable (WiFi + Tailscale + RustDesk all
+dead) after being connected fine for a long time — a hung network stack, not
+a credentials problem. dm1 needed a physical power cycle to recover. Also
+found the existing WiFi fallback services (`wifi-portal`, `usb-wifi-config`)
+were one-shot: gated by `ConditionPathExists=!/home/sjc/.wifi_configured`,
+so once WiFi was configured once they could never help again — not on a
+mid-session drop, and not on a relocation to a venue with different WiFi.
+
+- **`provisioning/network_watchdog.sh`** (new) + `network-watchdog.service`:
+  checks connectivity every 30 s; after ~2 min down, restarts
+  NetworkManager; after ~10 min still down, reboots as a last resort
+  (mirrors the physical power cycle that fixed dm1 today).
+- **`wifi_portal.py`**: `main()` rewritten from a one-shot check into a
+  persistent monitor loop. Opens the setup hotspot after ~1 min of no
+  connectivity (first boot, relocation, *or* mid-session drop), tears it
+  down automatically once WiFi is restored, then resumes monitoring —
+  process never exits.
+- **`usb_wifi_config.sh`**: removed the early exit on `.wifi_configured` and
+  the `exit 0` after a successful connect — now watches forever, so dropping
+  in a `dreammachine-wifi.txt` on a USB drive works for relocations too, not
+  just first boot.
+- **`wifi-portal.service` / `usb-wifi-config.service`**: removed the
+  `ConditionPathExists` gate (no longer needed — both scripts now re-arm
+  themselves).
+- Deployed and verified active on dm1 (git pull + manual systemd install,
+  since `install_wifi_setup.sh`'s `cp` step is a no-op when run from the
+  live deploy clone — same directory as source and destination).
