@@ -291,28 +291,8 @@ def handle(chat_id, text):
             reply(chat_id, f"{icon} <b>{FLEET[unit_target][0]}</b> RP2350 flash:\n<code>{out[-300:]}</code>")
         else:
             reply(chat_id, "⚠️ Specify unit: /flashdm1 through /flashdm5")
-    elif base_cmd == "fls":
-        if unit_target:
-            out = run_ssh(unit_target,
-                "/home/sjc/dreammachine/led/venv/bin/python3 /home/sjc/fls_trigger.py start",
-                timeout=10)
-            if "OSC-SENT" in out:
-                reply(chat_id, f"⚡ FLS started on {FLEET[unit_target][0]}")
-            else:
-                reply(chat_id, f"⚠️ FLS failed on {FLEET[unit_target][0]} — LED controller not responding")
-        else:
-            reply(chat_id, "⚠️ Specify unit: /flsdm1 through /flsdm5")
-    elif base_cmd == "flsstop":
-        if unit_target:
-            out = run_ssh(unit_target,
-                "/home/sjc/dreammachine/led/venv/bin/python3 /home/sjc/fls_trigger.py stop",
-                timeout=10)
-            if "OSC-SENT" in out:
-                reply(chat_id, f"⏹ FLS stopped on {FLEET[unit_target][0]}")
-            else:
-                reply(chat_id, f"⚠️ FLS stop failed on {FLEET[unit_target][0]}")
-        else:
-            reply(chat_id, "⚠️ Specify unit: /flsstopdm1 through /flsstopdm5")
+    elif base_cmd in ("fls", "flsstop"):
+        reply(chat_id, "ℹ️ FLS runs permanently from boot on every unit — no remote start/stop in this build.")
     elif base_cmd in ("help", "start"):
         reply(chat_id, f"<b>{HOSTNAME}</b> (master) commands:\n"
                        f"/status — all units\n"
@@ -320,8 +300,6 @@ def handle(chat_id, text):
                        f"/update — update ALL units\n"
                        f"/updatedm&lt;N&gt; — update unit N\n"
                        f"/flashdm&lt;N&gt; — flash RP2350 on unit N\n"
-                       f"/flsdm&lt;N&gt; — start FLS on unit N\n"
-                       f"/flsstopdm&lt;N&gt; — stop FLS on unit N\n"
                        f"/ip, /uptime, /boots, /errors — master only")
     else:
         pass  # ignore unknown commands silently

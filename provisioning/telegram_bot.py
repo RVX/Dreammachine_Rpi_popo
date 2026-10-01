@@ -177,22 +177,8 @@ def handle(chat_id, text):
     elif cmd in ("boots", "reboots"):
         boots = run("journalctl --list-boots --no-pager 2>/dev/null | tail -5")
         reply(chat_id, f"<b>{HOSTNAME}</b> recent boots:\n<code>{boots}</code>")
-    elif cmd == "fls" or cmd == f"fls{ALIAS}":
-        # Send OSC /fls/start to the LED controller via the helper script
-        # (avoids shell-quoting pitfalls of a python -c one-liner)
-        out = run("/home/sjc/dreammachine/led/venv/bin/python3 /home/sjc/fls_trigger.py start",
-                  timeout=10)
-        if "OSC-SENT" in out:
-            reply(chat_id, "⚡ FLS 60-min stroboscopic protocol STARTED on AMOS1+2 (in sync).")
-        else:
-            reply(chat_id, "⚠️ FLS trigger failed — LED controller not responding on OSC :9000")
-    elif cmd == "flsstop" or cmd == f"flsstop{ALIAS}":
-        out = run("/home/sjc/dreammachine/led/venv/bin/python3 /home/sjc/fls_trigger.py stop",
-                  timeout=10)
-        if "OSC-SENT" in out:
-            reply(chat_id, "⏹ FLS protocol stopped — back to ambient mode.")
-        else:
-            reply(chat_id, "⚠️ FLS stop failed — LED controller not responding on OSC :9000")
+    elif cmd in ("fls", f"fls{ALIAS}", "flsstop", f"flsstop{ALIAS}"):
+        reply(chat_id, "ℹ️ FLS runs permanently from boot — no remote start/stop in this build.")
     elif cmd == "update" or cmd == f"update{ALIAS}":
         reply(chat_id, "⏳ Pulling latest code...")
         out = run("bash /home/sjc/dm_update.sh 2>&1 || echo 'SCRIPT-CRASHED'", timeout=120)

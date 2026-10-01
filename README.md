@@ -143,7 +143,7 @@ reaper/           Lua autoloop scripts, startup, force_master_mono, ensure_reape
 systemd/          unit files installed on the Pi (start_reaper.sh with amp watchdog)
 tools/            utilities (speaker_test: speaker comparison/calibration signals)
 provisioning/     cloud-init, provision_unit.sh v2, notify.py, telegram_bot.py,
-                  dm_update.sh, fls_trigger.py, spi_test.py, amp_test.py
+                  dm_update.sh, spi_test.py, amp_test.py
 rp2350/           RP2350B firmware (main.c, CMakeLists, pattern.py test scripts)
 Dreammachine_LIGHTCODE/  FLS research protocol reference (fls_60min_rp2350b.ino)
 golden-master/    sjcdm4 state snapshot (reaper.ini, RPP, scripts, services)
@@ -451,8 +451,10 @@ auto re-sends unmute if the DAC PCM device closes unexpectedly.
 
 **FLS strobe not triggering**: verify `0x08`/`0x09` firmware commands are
 flashed (post-2026-09-27). Use `python3 provisioning/spi_test.py strobe` to
-test raw hardware. The Telegram `/fls` command uses `fls_trigger.py` (not
-inline `python3 -c`) to avoid shell quoting bugs.
+test raw hardware. As of 2026-09-30, FLS starts automatically on boot and
+runs permanently (no OSC/Telegram stop/start) — there is no `fls_trigger.py`
+or `/fls`/`/flsstop` override anymore; the only way to stop it is to stop
+`dreammachine-led.service`.
 
 **OpenOCD "Unable to reset target" / "transport not selected"**: the flash
 command needs `-f target/rp2350.cfg` after the interface cfg. Fixed in
