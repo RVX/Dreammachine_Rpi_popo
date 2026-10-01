@@ -1,5 +1,5 @@
 [Unit]
-Description=DREAMMACHINE LED controller (OSC-driven, synced to REAPER)
+Description=DREAMMACHINE LED controller (permanent FLS strobe protocol, no OSC/override)
 After=network.target
 
 [Service]

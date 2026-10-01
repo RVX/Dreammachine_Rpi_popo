@@ -7,8 +7,9 @@
 > operation is allowed.
 
 Raspberry Pi control system for **DREAMMACHINE**, for an art installation. Each Pi runs a REAPER session through the custom PCM5102A
-sound shield, while a Python service drives a synchronized LED strip, reacting
-live to REAPER's transport/playback state over OSC (ReaOSC). The whole thing
+sound shield, while a separate Python service drives an LED strip running a
+permanent 60-minute FLS stroboscopic protocol, independent of REAPER and with
+no OSC/network/Telegram override (as of 2026-09-30). The whole thing
 boots unattended, kiosk-style — no keyboard, mouse, or monitor required on site.
 
 Reference build: **sjcdm1** (unit 1). Once verified end-to-end, the exact same
@@ -84,12 +85,13 @@ All units provisioned with `provisioning/provision_unit.sh` v2. See [MIGRATION.m
 | LED control | RP2350B GPIO33-38; SPI-driven from Pi |
 | Remote access | Tailscale (mesh VPN) + RustDesk (headless-capable) |
 | Notifications | Telegram bot + email on boot/join |
-| Remote commands | `/status` `/update` `/flash` `/fls` `/flsstop` via Telegram |
+| Remote commands | `/status` `/update` `/flash` via Telegram (FLS runs permanently, no start/stop command) |
 
 **GPIO 18, 19, and 21 are reserved for PCM5102A I2S. GPIO16-20 are reserved
 for RP2350B SPI/IRQ, GPIO23/24 for SWD debug, and GPIO0/1 for serial.** The
-`dreammachine-led.service` runs `led/led_controller_spi.py` (OSC-driven,
-SPI-based) — the legacy direct-GPIO `led_controller.py` is deprecated.
+`dreammachine-led.service` runs `led/led_controller_spi.py` (permanent FLS
+protocol, SPI-based, no OSC) — the legacy direct-GPIO `led_controller.py` is
+deprecated.
 
 ## Network
 
@@ -138,7 +140,7 @@ to force 1080p output even with no monitor attached. Without this, RustDesk show
 ```
 setup/            install scripts, run once per Pi (idempotent)
 config/           dreammachine.env — single source of config (pins, ports, paths)
-led/              led_controller_spi.py — OSC-driven LED controller (SPI to RP2350)
+led/              led_controller_spi.py — permanent FLS LED controller (SPI to RP2350, no OSC)
 reaper/           Lua autoloop scripts, startup, force_master_mono, ensure_reaper_audio
 systemd/          unit files installed on the Pi (start_reaper.sh with amp watchdog)
 tools/            utilities (speaker_test: speaker comparison/calibration signals)
@@ -773,3 +775,73 @@ failures with no error visible to the user.
   re-enabled the conflicting bot on dm1/2/3 on the next `/update`. Now
   checks `hostname` and only syncs/restarts the master bot on sjcdm4; on
   all other units it explicitly disables `telegram-bot.service` again.
+
+---
+
+## Changelog — 2026-09-30 session (later night): FLS-only simplification, no OSC/override, reboot + shutdown recovery verification
+
+### Changed — LED is now permanent, no remote/OSC override (explicit user decision for this expo)
+- `led/led_controller_spi.py` rewritten to start the 60-minute FLS
+  stroboscopic protocol unconditionally at process launch and run it forever
+  in a background thread. Removed entirely: the `pythonosc` dependency and
+  OSC dispatcher/server, the legacy ambient/idle `PatternEngine` (12
+  alternating test patterns — crossfade, pingpong, sweep, glitch, strobe-burst,
+  etc. — that used to auto-activate whenever FLS was stopped), and all
+  start/stop state. There is now no runtime way to stop the strobe short of
+  stopping `dreammachine-led.service` itself (SIGTERM still cleanly turns
+  everything off via the existing handler).
+- `provisioning/telegram_bot.py` and `provisioning/telegram_bot_master.py`:
+  `/fls` `/flsstop` (and fleet `/flsdm<N>` `/flsstopdm<N>`) commands replaced
+  with an informational reply that the strobe runs permanently. Removed from
+  the `/help` command list.
+- Deleted `provisioning/fls_trigger.py` (OSC helper script, no longer needed).
+- `systemd/dreammachine-led.service` description string updated (no longer
+  says "OSC-driven").
+
+### Verified — dm3 full reboot + full shutdown/power-cycle recovery test
+Both a software `reboot` and a true `shutdown now` + manual re-power were
+performed live on dm3 to validate unattended recovery:
+- REAPER + DAC: confirmed `RUNNING` with `owner_pid` matching REAPER's PID
+  after both tests.
+- LED service: confirmed restarting cleanly into permanent FLS mode both
+  times (`FLS 60-min protocol started (permanent, ... no OSC/override)` in
+  `journalctl`).
+- **Amp fault-reset escalation confirmed working for real**, not just in
+  theory: during the shutdown/power-on test, `start_reaper.sh`'s amp
+  watchdog log (`/tmp/dreammachine-amp-watchdog.log`) showed 14 plain
+  `amp-unmute` retries failing to clear a latched `FAULTZ`, then the
+  one-time full `amp-shutdown` → `amp-start-muted` → `amp-unmute` reset
+  cycle fired automatically at ~90s and cleared it. This is the first
+  real-world confirmation that this escalation (added earlier in the
+  broader session) actually recovers a genuine latched fault.
+- `show-watchdog.service` and `network-watchdog.service` both confirmed
+  `active` after both tests (show-watchdog starts ~2 min into boot, once
+  `graphical.target` settles — checking immediately at 0 min uptime can show
+  it as not-yet-started; this is normal, not a bug).
+- RustDesk confirmed active/reachable both times. Disk usage healthy (23%).
+- 0 failed systemd units after the shutdown test (previous reboot test had
+  only the benign, pre-known `NetworkManager-wait-online` failure).
+- **New, separate finding**: Tailscale on dm3 shows `Needs login` —
+  server-side deauthorization, unrelated to any change this session, not
+  fixable remotely (requires the user to open the provided login link in a
+  browser). RustDesk remains the working remote-access fallback.
+
+### Confirmed — "show must never stop" guarantees hold up end-to-end
+Reviewed live (not just in git) on dm3 to answer: does the show survive a
+multi-day network outage, an amp fault, or a cold power cycle?
+- `network_watchdog.sh`'s `show_is_healthy()` gate (REAPER running + LED
+  service active) confirmed live — a dead network alone never triggers a
+  reboot as long as the show itself is running; it just keeps retrying
+  NetworkManager in the background indefinitely.
+- `start_reaper.sh`'s amp watchdog confirmed live — unconditional
+  `amp-unmute` resend on a timer plus the one-time full fault-reset cycle
+  described above.
+- `dreammachine-led.service` confirmed to have no hard network dependency
+  (`After=network.target` only, not `network-online.target`) and
+  `Restart=always`, so it starts immediately even fully offline.
+
+### Deployed to fleet
+- dm3 only so far (standing dm3-first policy). All of this session's fixes
+  (FLS-only simplification, bot updates, exec-bit self-heal, amp-watchdog
+  hardening) are committed to `main` on GitHub and ready to pull on
+  dm1/dm2/dm4/dm5 — rollout deferred until each unit is next reachable.
