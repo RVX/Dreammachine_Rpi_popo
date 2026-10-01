@@ -408,6 +408,18 @@ fine" for anything not visibly broken:
    fast-forward pull can still leave a unit behind if it was stashed
    instead of merged, or if the reference unit itself got a later commit
    after this unit's last pull.
+8. **No conflicting VNC server is listening on :5900.**
+   `systemctl is-active wayvnc.service wayvnc-control.service
+   vncserver-x11-serviced.service` — all three must say `inactive`/`failed`
+   (masked), and `sudo ss -tlnp | grep 5900` must show nothing listening.
+   Raspberry Pi OS ships both RealVNC (`vncserver-x11-serviced.service`) and
+   Wayland VNC (`wayvnc.service`+`wayvnc-control.service`) fighting over the
+   same port; wayvnc loses the bind and restart-loops forever, which wedges
+   `multi-user.target`/`graphical.target` on boot (found on dm3, confirmed
+   present on dm1 too — check every unit, don't assume only one was ever
+   affected). RustDesk is the only remote-access tool this project uses.
+   `provision_unit.sh`/`field_fix.sh` both mask all four VNC-related units
+   now; re-run `field_fix.sh` on any unit still showing active.
 
 ## Troubleshooting
 

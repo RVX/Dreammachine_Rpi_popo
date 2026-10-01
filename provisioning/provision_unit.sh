@@ -42,6 +42,16 @@ echo sjcsjc | sudo -S systemctl enable ssh 2>/dev/null
 echo sjcsjc | sudo -S raspi-config nonint do_boot_behaviour B4 2>/dev/null || fail "autologin"
 echo sjcsjc | sudo -S sed -i 's/^user-session=.*/user-session=rpd-x/; s/^autologin-session=.*/autologin-session=rpd-x/; s/^greeter-session=.*/greeter-session=pi-greeter-x/' /etc/lightdm/lightdm.conf 2>/dev/null || fail "session"
 
+# --- 1b. Remove conflicting VNC stacks (RealVNC + wayvnc both bind :5900) ---
+# Raspberry Pi OS ships both vncserver-x11-serviced.service (RealVNC) and
+# wayvnc.service+wayvnc-control.service (Wayland VNC). wayvnc always loses the
+# bind and Restart=always loops forever; wayvnc-control's BindsTo=wayvnc.service
+# never stabilizes, which wedges multi-user.target/graphical.target on boot
+# (found on sjcdm3). RustDesk is the only remote-access tool this project uses.
+echo sjcsjc | sudo -S systemctl stop wayvnc-control.service wayvnc.service vncserver-x11-serviced.service 2>/dev/null
+echo sjcsjc | sudo -S systemctl disable wayvnc-control.service wayvnc.service vncserver-x11-serviced.service 2>/dev/null
+echo sjcsjc | sudo -S systemctl mask wayvnc-control.service wayvnc.service vncserver-x11-serviced.service vncserver-virtuald.service 2>/dev/null
+
 # --- 2. Tailscale ---
 if ! tailscale ip -4 >/dev/null 2>&1; then
     log "Installing Tailscale..."
