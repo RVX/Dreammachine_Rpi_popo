@@ -139,28 +139,29 @@ class ProtocolStep:
     oscillating: bool = False
     osc_rate_hz: float = 0.0
 
-# 16-phase research protocol (60 min total, from the .ino reference)
+# 16-phase research protocol (60 min total, v3: max-intensity, fixed 50%
+# duty cycle, 5.0-14.0 Hz range, from fls_60min_rp2350b-v3.ino)
 FLS_PROTOCOL = [
     # Phase I: Induction (0-8 min)
-    ProtocolStep(240, 14.0, 10.0, 0.20, 0.30),           # ramp-in
-    ProtocolStep(240, 10.0, 10.0, 0.30, 0.30),           # alpha pure
+    ProtocolStep(240, 14.0, 10.0, 0.50, 0.50),           # ramp-in
+    ProtocolStep(240, 10.0, 10.0, 0.50, 0.50),           # alpha pure
     # Phase II: Alternation (8-24 min)
-    ProtocolStep(180,  3.5,  3.5, 0.50, 0.50),           # theta hypnagogic
-    ProtocolStep(180,  3.5, 12.0, 0.50, 0.30),           # ascending sweep
-    ProtocolStep(240, 10.2, 10.2, 0.30, 0.30, True, 0.1), # alpha harmonic oscillation
-    ProtocolStep(180,  3.0,  3.0, 0.50, 0.50),           # theta deep / CVH
-    ProtocolStep(180, 15.0, 15.0, 0.25, 0.25),           # beta stimulation
+    ProtocolStep(180,  5.0,  5.0, 0.50, 0.50),           # theta immersion
+    ProtocolStep(180,  5.0, 12.0, 0.50, 0.50),           # ascending sweep
+    ProtocolStep(240, 10.2, 10.2, 0.50, 0.50, True, 0.1), # alpha harmonic oscillation
+    ProtocolStep(180,  5.2,  5.2, 0.50, 0.50),           # theta sustained
+    ProtocolStep(180, 14.0, 14.0, 0.50, 0.50),           # beta max stimulation
     # Phase III: Rhythmic variation (24-48 min)
-    ProtocolStep(240, 10.0, 10.0, 0.30, 0.30, True, 0.25), # fast alternation
-    ProtocolStep(240,  9.0,  9.0, 0.35, 0.35, True, 0.05), # floating alpha/theta sine
-    ProtocolStep(240,  3.2,  3.2, 0.50, 0.50),           # hypnagogic immersion 2
-    ProtocolStep(240, 10.0, 10.0, 0.20, 0.40),           # alpha bright, duty sweep
-    ProtocolStep(240, 16.0, 18.0, 0.20, 0.25),           # ramp to high beta
-    ProtocolStep(240,  9.5,  9.5, 0.30, 0.30),           # return to relaxed alpha
+    ProtocolStep(240, 10.0, 10.0, 0.50, 0.50, True, 0.25), # fast alternation
+    ProtocolStep(240,  8.0, 11.0, 0.50, 0.50, True, 0.05), # floating sweep
+    ProtocolStep(240,  5.5,  5.5, 0.50, 0.50),           # theta secondary
+    ProtocolStep(240, 10.0, 10.0, 0.50, 0.50),           # alpha bright constant
+    ProtocolStep(240, 12.0, 14.0, 0.50, 0.50),           # ramp to high beta
+    ProtocolStep(240,  9.5,  9.5, 0.50, 0.50),           # return to alpha
     # Phase IV: Cooldown (48-60 min)
-    ProtocolStep(240,  8.0,  6.0, 0.35, 0.35),           # intermediate transition
-    ProtocolStep(240,  5.0,  2.0, 0.35, 0.20),           # gradual descent
-    ProtocolStep(240,  2.0,  0.2, 0.20, 0.00),           # shutdown to baseline
+    ProtocolStep(240,  7.5,  6.0, 0.50, 0.50),           # intermediate transition
+    ProtocolStep(240,  5.5,  5.0, 0.50, 0.30),           # power descent
+    ProtocolStep(240,  5.0,  5.0, 0.30, 0.00),           # progressive shutdown
 ]
 
 
