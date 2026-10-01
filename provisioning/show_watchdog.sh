@@ -47,13 +47,31 @@ ensure_reaper_script_executable() {
     if [ -f "$script" ] && [ ! -x "$script" ]; then
         chmod +x "$script"
         log "Fixed missing +x bit on $script (core.fileMode false silently drops this on git pull)"
+        return 0
     fi
+    return 1
 }
 
 log "Show watchdog started, settling for ${BOOT_SETTLE_SECONDS}s before monitoring"
-ensure_reaper_script_executable
+FIXED_EXEC_BIT_AT_BOOT=0
+ensure_reaper_script_executable && FIXED_EXEC_BIT_AT_BOOT=1
 sleep "$BOOT_SETTLE_SECONDS"
 log "Show watchdog entering monitor loop"
+
+# Fast path: if the exec bit was missing at watchdog startup (before this
+# boot's lxsession autostart had any chance to run with a working script),
+# this boot's one-shot autostart attempt has already failed and permanently
+# won't be retried by lxsession itself. Waiting out the full DOWN_THRESHOLD
+# here would needlessly leave the show silent for ~3 extra minutes when we
+# already know the fix (lightdm restart -> fresh autostart pass) is needed —
+# directly against the "show must never stop" priority. Skip straight to it.
+if [ "$FIXED_EXEC_BIT_AT_BOOT" -eq 1 ] && ! reaper_running; then
+    LIGHTDM_ATTEMPTS=$((LIGHTDM_ATTEMPTS + 1))
+    log "Exec bit was missing at boot and REAPER isn't running — this boot's autostart almost certainly already failed because of it; restarting lightdm immediately (attempt ${LIGHTDM_ATTEMPTS}/${MAX_LIGHTDM_ATTEMPTS}) instead of waiting out the normal down-threshold"
+    timeout 30 systemctl restart lightdm
+    log "Waiting ${LIGHTDM_RECOVERY_GRACE}s for desktop session + REAPER to come back up"
+    sleep "$LIGHTDM_RECOVERY_GRACE"
+fi
 
 while true; do
     if reaper_running; then

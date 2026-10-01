@@ -845,3 +845,21 @@ multi-day network outage, an amp fault, or a cold power cycle?
   (FLS-only simplification, bot updates, exec-bit self-heal, amp-watchdog
   hardening) are committed to `main` on GitHub and ready to pull on
   dm1/dm2/dm4/dm5 — rollout deferred until each unit is next reachable.
+
+### Fixed — show_watchdog.sh waited out its full 3-minute down-threshold even when the cause (lost exec bit) was already fixed
+Found immediately after the test above: a `git pull` deploy (docs-only
+commit) silently stripped `start_reaper.sh`'s exec bit again (the
+already-documented `core.fileMode false` gotcha), so the very next reboot's
+one-shot lxsession autostart failed silently — no REAPER, no sound.
+`show_watchdog.sh`'s existing self-heal correctly detected and fixed the
+exec bit at startup, but the watchdog then still waited out the normal
+`DOWN_THRESHOLD` (~3 min of consecutive failed checks) before restarting
+lightdm, even though a bit that had to be fixed at boot is near-certain
+proof that boot's one-shot autostart attempt already failed. This directly
+worked against the "show must never stop" priority by leaving the show
+silent for longer than necessary. **Fixed**: if the exec bit was missing at
+watchdog startup and REAPER still isn't running once the boot-settle window
+ends, `show_watchdog.sh` now skips straight to a lightdm restart instead of
+waiting out the full down-threshold. Verified live on dm3 (manually
+triggered the same recovery while debugging — REAPER + DAC + amp-unmute all
+confirmed back within ~20s of the lightdm restart).
