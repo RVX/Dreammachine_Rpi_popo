@@ -66,8 +66,21 @@ for _ in $(seq 1 40); do
 		# Startup is the single riskiest window for missing that 300ms FAULTZ
 		# poll (power rails/DAC XSMT still settling), so retry fast (every 2s)
 		# for the first ~2 minutes, then fall back to a slow steady-state poll.
+		#
+		# Plain amp-unmute (0x22) can NEVER clear a *latched* FAULTZ fault (TPA3118
+		# over-current/over-temp/UVLO) because it never toggles the shutdown pin —
+		# only a full amp-shutdown -> amp-start-muted -> amp-unmute cycle resets
+		# that latch (confirmed in the field 2026-09-30: amp stayed silently muted
+		# through ~40 plain-unmute retries, only cleared by a manual full cycle).
+		# A full cycle audibly interrupts playback for ~0.4s though, so it is only
+		# attempted ONCE per boot, at the 30s mark of the startup window (by then a
+		# latched fault from power-up transients has had time to manifest but a
+		# human watching the opening of the piece is least likely to notice one
+		# brief blip) -- never repeated in steady state, to avoid disrupting an
+		# already-fine show.
 		(
 			attempt=0
+			full_reset_done=0
 			while kill -0 "${REAPER_PID}" 2>/dev/null; do
 				if [ "${attempt}" -lt 60 ]; then
 					sleep 2
@@ -77,6 +90,12 @@ for _ in $(seq 1 40); do
 				fi
 				if ! fuser -s "${PCM_DEVICE}" 2>/dev/null; then
 					echo "$(date '+%Y-%m-%d %H:%M:%S') WATCHDOG: DAC closed unexpectedly, re-unmuting amp" >>"${AMP_LOG}"
+				fi
+				if [ "${full_reset_done}" -eq 0 ] && [ "${attempt}" -eq 15 ]; then
+					full_reset_done=1
+					echo "$(date '+%Y-%m-%d %H:%M:%S') WATCHDOG: one-time full amp reset cycle (clears a latched FAULTZ that plain unmute cannot)" >>"${AMP_LOG}"
+					python3 "${PATTERN}" amp-shutdown >>"${AMP_LOG}" 2>&1 || true
+					python3 "${PATTERN}" amp-start-muted >>"${AMP_LOG}" 2>&1 || true
 				fi
 				python3 "${PATTERN}" amp-unmute >>"${AMP_LOG}" 2>&1 || true
 			done
