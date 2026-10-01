@@ -36,7 +36,22 @@ reaper_running() {
     pgrep -x reaper >/dev/null 2>&1
 }
 
+# core.fileMode is false fleet-wide (stops false "modified" diffs from
+# SD-card mount quirks), so `git pull` silently never restores a lost +x bit
+# on this lxsession `@`-exec'd script. A missing +x fails completely
+# silently (no journal entry anywhere) and looks identical to "REAPER not
+# running" from this watchdog's point of view, but a lightdm restart alone
+# can never fix it since lxsession just re-hits the same Permission denied.
+ensure_reaper_script_executable() {
+    local script="/home/sjc/dreammachine/systemd/start_reaper.sh"
+    if [ -f "$script" ] && [ ! -x "$script" ]; then
+        chmod +x "$script"
+        log "Fixed missing +x bit on $script (core.fileMode false silently drops this on git pull)"
+    fi
+}
+
 log "Show watchdog started, settling for ${BOOT_SETTLE_SECONDS}s before monitoring"
+ensure_reaper_script_executable
 sleep "$BOOT_SETTLE_SECONDS"
 log "Show watchdog entering monitor loop"
 
@@ -54,6 +69,7 @@ while true; do
         if [ "$FAIL_COUNT" -ge "$DOWN_THRESHOLD" ]; then
             if [ "$LIGHTDM_ATTEMPTS" -lt "$MAX_LIGHTDM_ATTEMPTS" ]; then
                 LIGHTDM_ATTEMPTS=$((LIGHTDM_ATTEMPTS + 1))
+                ensure_reaper_script_executable
                 log "REAPER down for $((DOWN_THRESHOLD * CHECK_INTERVAL / 60)) min — restarting lightdm (attempt ${LIGHTDM_ATTEMPTS}/${MAX_LIGHTDM_ATTEMPTS}), this recovers a hung X session"
                 timeout 30 systemctl restart lightdm
                 FAIL_COUNT=0
